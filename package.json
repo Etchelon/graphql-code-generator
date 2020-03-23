@@ -3,7 +3,7 @@
   "scripts": {
     "clean": "rimraf node_modules packages/{*,plugins/*/*,presets/*,utils/*}/node_modules",
     "prebuild": "rimraf packages/{*,plugins/*/*,presets/*,utils/*}/dist",
-    "build": "lerna run build --ignore @graphql-codegen/live-demo --ignore @graphql-codegen/website",
+    "build": "yarn build:all && yarn bundle:all",
     "test": "node --expose-gc ./node_modules/.bin/jest --no-watchman",
     "lint": "eslint --ext .ts .",
     "prettier": "prettier --ignore-path .gitignore --write --list-different \"**/*.{ts,tsx,graphql,yml}\"",

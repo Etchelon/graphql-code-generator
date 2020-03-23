@@ -8,7 +8,8 @@ const fs = require('fs-extra');
 
 async function build(packagePath) {
   if (packagePath.includes('graphql-codegen-cli')) {
-    // return;
+    console.warn('TODO: CLI build');
+    return;
   }
 
   const cwd = packagePath.replace('/package.json', '');
