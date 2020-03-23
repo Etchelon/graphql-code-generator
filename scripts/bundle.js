@@ -1,17 +1,13 @@
-const { resolve, join } = require('path');
+const { resolve, join, basename } = require('path');
 const rollup = require('rollup');
 const generatePackageJson = require('rollup-plugin-generate-package-json');
 const autoExternal = require('rollup-plugin-auto-external');
+const resolveNode = require('@rollup/plugin-node-resolve');
 const globby = require('globby');
 const pLimit = require('p-limit');
 const fs = require('fs-extra');
 
 async function build(packagePath) {
-  if (packagePath.includes('graphql-codegen-cli')) {
-    console.warn('TODO: CLI build');
-    return;
-  }
-
   const cwd = packagePath.replace('/package.json', '');
   const pkg = await readPackageJson(cwd);
   const name = pkg.name.replace('@graphql-codegen/', '');
@@ -30,6 +26,7 @@ async function build(packagePath) {
   const inputOptions = {
     input: inputFile,
     plugins: [
+      resolveNode(),
       autoExternal({ packagePath, builtins: true, dependencies: true, peerDependencies: true }),
       generatePackageJson({
         baseContents: rewritePackageJson({
@@ -44,6 +41,11 @@ async function build(packagePath) {
 
   // create a bundle
   const bundle = await rollup.rollup(inputOptions);
+
+
+  if (!packagePath.includes('graphql-codegen-cli')) {
+    return;
+  }
 
   // generates
 
@@ -91,22 +93,22 @@ async function build(packagePath) {
     await Promise.all(
       Object.keys(pkg.buildOptions.bin).map(async alias => {
         console.log(alias, pkg.buildOptions.bin[alias]);
-        // const options = pkg.buildOptions.bin[alias];
-        // const inputOptions = {
-        //   input: options.input,
-        //   plugins: [autoExternal({ packagePath, builtins: true, dependencies: true, peerDependencies: true })],
-        //   inlineDynamicImports: true,
-        // };
+        const options = pkg.buildOptions.bin[alias];
+        const inputOptions = {
+          input: options.input,
+          plugins: [autoExternal({ packagePath, builtins: true, dependencies: true, peerDependencies: true })],
+          inlineDynamicImports: true,
+        };
 
-        // const bundle = await rollup.rollup(inputOptions);
+        const bundle = await rollup.rollup(inputOptions);
 
-        // await bundle.write({
-        //   banner: `#!/usr/bin/env node`,
-        //   preferConst: true,
-        //   sourcemap: options.sourcemap,
-        //   file: pkg.bin[alias],
-        //   format: 'cjs',
-        // });
+        await bundle.write({
+          banner: `#!/usr/bin/env node`,
+          preferConst: true,
+          sourcemap: options.sourcemap,
+          file: pkg.bin[alias],
+          format: 'cjs',
+        });
       })
     );
   }
@@ -171,12 +173,12 @@ function rewritePackageJson({ pkg, preserved }) {
     definition: newPkg.typings,
   };
 
-  // if (pkg.bin) {
-  //   newPkg.bin = {};
-  //   for (const alias in pkg.bin) {
-  //     newPkg.bin[alias] = transformPath(pkg.bin[alias]);
-  //   }
-  // }
+  if (pkg.bin) {
+    newPkg.bin = {};
+    for (const alias in pkg.bin) {
+      newPkg.bin[alias] = basename(pkg.bin[alias]);
+    }
+  }
 
   return newPkg;
 }
