@@ -285,22 +285,7 @@ ${camelCase(o.node.name.value)}(variables${optionalVariables ? '?' : ''}: ${
     .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
 }`;
 
-        let watchMethod;
-
-        if (o.operationType === 'Query') {
-          watchMethod = `
-
-${camelCase(o.node.name.value)}Watch(variables${optionalVariables ? '?' : ''}: ${
-            o.operationVariablesTypes
-          }, options?: WatchQueryOptionsAlone<${o.operationVariablesTypes}>) {
-  const options_ = { ...options };
-  options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
-  return this.${camelCase(o.serviceName)}
-    .watch(variables, options_)
-    .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
-}`;
-        }
-        return [method, watchMethod].join('');
+        return method;
       })
       .map(s => indentMultiline(s, 2));
 

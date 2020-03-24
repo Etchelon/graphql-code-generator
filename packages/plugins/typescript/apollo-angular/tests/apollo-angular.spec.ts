@@ -355,14 +355,6 @@ describe('Apollo Angular', () => {
             .fetch(variables, options_)
             .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
         }
-
-        myFeedWatch(variables?: MyFeedQueryVariables, options?: WatchQueryOptionsAlone<MyFeedQueryVariables>) {
-          const options_ = { ...options };
-          options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
-          return this.myFeedGql
-            .watch(variables, options_)
-            .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
-        }
         }
       `);
       validateTypeScript(content, modifiedSchema, docs, {});
@@ -406,14 +398,6 @@ describe('Apollo Angular', () => {
           options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
           return this.myFeedGql
             .fetch(variables, options_)
-            .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
-        }
-
-        myFeedWatch(variables?: MyFeedQueryVariables, options?: WatchQueryOptionsAlone<MyFeedQueryVariables>) {
-          const options_ = { ...options };
-          options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
-          return this.myFeedGql
-            .watch(variables, options_)
             .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
         }
         }
