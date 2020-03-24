@@ -42,7 +42,6 @@ async function build(packagePath) {
   // create a bundle
   const bundle = await rollup.rollup(inputOptions);
 
-
   if (!packagePath.includes('graphql-codegen-cli')) {
     return;
   }
@@ -57,12 +56,12 @@ async function build(packagePath) {
   const generates = [
     {
       ...commonOutputOptions,
-      file: resolve(bobProjectDir, 'index.cjs.js'),
+      file: join(bobProjectDir, 'index.cjs.js'),
       format: 'cjs',
     },
     {
       ...commonOutputOptions,
-      file: resolve(bobProjectDir, 'index.esm.js'),
+      file: join(bobProjectDir, 'index.esm.js'),
       format: 'esm',
     },
   ];
@@ -84,19 +83,17 @@ async function build(packagePath) {
     declarations.map(file => limit(() => fs.copy(join(distProjectSrcDir, file), join(bobProjectDir, file))))
   );
 
-  // remove <project>/dist
-  await fs.remove(join(cwd, 'dist'));
-  // move bob/<project-name> to <project>/dist
-  await fs.move(bobProjectDir, join(cwd, 'dist'));
-
   if (pkg.buildOptions.bin) {
     await Promise.all(
       Object.keys(pkg.buildOptions.bin).map(async alias => {
-        console.log(alias, pkg.buildOptions.bin[alias]);
         const options = pkg.buildOptions.bin[alias];
+        const binPath = resolve(distProjectSrcDir, options.input.replace('src/', '').replace('.ts', '.js'));
         const inputOptions = {
-          input: options.input,
-          plugins: [autoExternal({ packagePath, builtins: true, dependencies: true, peerDependencies: true })],
+          input: binPath,
+          plugins: [
+            resolveNode(),
+            autoExternal({ packagePath, builtins: true, dependencies: true, peerDependencies: true }),
+          ],
           inlineDynamicImports: true,
         };
 
@@ -106,12 +103,17 @@ async function build(packagePath) {
           banner: `#!/usr/bin/env node`,
           preferConst: true,
           sourcemap: options.sourcemap,
-          file: pkg.bin[alias],
+          file: join(bobProjectDir, pkg.bin[alias].replace('dist/', '')),
           format: 'cjs',
         });
       })
     );
   }
+
+  // remove <project>/dist
+  await fs.remove(join(cwd, 'dist'));
+  // move bob/<project-name> to <project>/dist
+  await fs.move(bobProjectDir, join(cwd, 'dist'));
 }
 
 async function main() {
@@ -175,8 +177,9 @@ function rewritePackageJson({ pkg, preserved }) {
 
   if (pkg.bin) {
     newPkg.bin = {};
+
     for (const alias in pkg.bin) {
-      newPkg.bin[alias] = basename(pkg.bin[alias]);
+      newPkg.bin[alias] = pkg.bin[alias].replace('src/', '');
     }
   }
 
