@@ -22,9 +22,6 @@
   "buildOptions": {
     "input": "./src/index.ts"
   },
-  "jest-junit": {
-    "outputDirectory": "../../../../test-results/typescript"
-  },
   "publishConfig": {
     "access": "public"
   }

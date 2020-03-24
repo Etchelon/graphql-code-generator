@@ -26,11 +26,14 @@
   "devDependencies": {
     "@types/lodash": "4.14.149"
   },
+  "main": "dist/index.cjs.js",	
+  "module": "dist/index.esm.js",	
+  "typings": "dist/index.d.ts",	
+  "typescript": {	
+    "definition": "dist/index.d.ts"	
+  },
   "buildOptions": {
     "input": "./src/index.ts"
-  },
-  "jest-junit": {
-    "outputDirectory": "../../../../test-results/typescript-mongodb"
   },
   "publishConfig": {
     "access": "public"

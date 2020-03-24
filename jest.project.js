@@ -6,12 +6,11 @@ const TSCONFIG = resolve(ROOT_DIR, 'tsconfig.json');
 const tsconfig = require(TSCONFIG);
 const CI = !!process.env.CI;
 
-module.exports = ({ dirname }) => {
+module.exports = ({ dirname, projectMode = true }) => {
   const pkg = require(resolve(dirname, 'package.json'));
-  const displayName = CI ? undefined : pkg.name.replace('@graphql-codegen/', '');
 
   return {
-    displayName,
+    ...(CI || !projectMode ? {} : { displayName: pkg.name.replace('@graphql-codegen/', '') }),
     transform: { '^.+\\.tsx?$': 'ts-jest' },
     testEnvironment: 'node',
     rootDir: dirname,
@@ -27,6 +26,5 @@ module.exports = ({ dirname }) => {
     moduleNameMapper: pathsToModuleNameMapper(tsconfig.compilerOptions.paths, { prefix: `${ROOT_DIR}/` }),
     cacheDirectory: resolve(ROOT_DIR, `${CI ? '' : 'node_modules/'}.cache/jest`),
     collectCoverage: false,
-    setupFilesAfterEnv: [resolve(ROOT_DIR, 'jest.env.js')],
   };
 };
