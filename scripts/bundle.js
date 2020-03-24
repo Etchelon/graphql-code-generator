@@ -42,10 +42,6 @@ async function build(packagePath) {
   // create a bundle
   const bundle = await rollup.rollup(inputOptions);
 
-  if (!packagePath.includes('graphql-codegen-cli')) {
-    return;
-  }
-
   // generates
 
   const commonOutputOptions = {
