@@ -344,15 +344,24 @@ describe('Apollo Angular', () => {
         @Injectable({ providedIn: 'root' })
         export class ApolloAngularSDK {
         constructor(
-          private myFeedGql: MyFeedGQL
+          private readonly graphQlService: GraphQLService,
+          private readonly myFeedGql: MyFeedGQL
         ) {}
         
         myFeed(variables?: MyFeedQueryVariables, options?: QueryOptionsAlone<MyFeedQueryVariables>) {
-          return this.myFeedGql.fetch(variables, options)
+          const options_ = { ...options };
+          options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
+          return this.myFeedGql
+            .fetch(variables, options_)
+            .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
         }
 
         myFeedWatch(variables?: MyFeedQueryVariables, options?: WatchQueryOptionsAlone<MyFeedQueryVariables>) {
-          return this.myFeedGql.watch(variables, options)
+          const options_ = { ...options };
+          options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
+          return this.myFeedGql
+            .watch(variables, options_)
+            .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
         }
         }
       `);
@@ -388,15 +397,24 @@ describe('Apollo Angular', () => {
         @Injectable()
         export class MySDK {
         constructor(
-          private myFeedGql: MyFeedGQL
+          private readonly graphQlService: GraphQLService,
+          private readonly myFeedGql: MyFeedGQL
         ) {}
         
         myFeed(variables?: MyFeedQueryVariables, options?: QueryOptionsAlone<MyFeedQueryVariables>) {
-          return this.myFeedGql.fetch(variables, options)
+          const options_ = { ...options };
+          options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
+          return this.myFeedGql
+            .fetch(variables, options_)
+            .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
         }
 
         myFeedWatch(variables?: MyFeedQueryVariables, options?: WatchQueryOptionsAlone<MyFeedQueryVariables>) {
-          return this.myFeedGql.watch(variables, options)
+          const options_ = { ...options };
+          options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
+          return this.myFeedGql
+            .watch(variables, options_)
+            .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
         }
         }
       `);

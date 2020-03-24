@@ -80,7 +80,13 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
     const imports = [`import { Injectable } from '@angular/core';`, `import * as Apollo from 'apollo-angular';`];
 
     if (this.config.sdkClass) {
-      imports.push(`import * as ApolloCore from 'apollo-client';`);
+      imports.push(
+        ...[
+          `import * as ApolloCore from 'apollo-client';`,
+          `import { takeWhile } from 'rxjs/operators';`,
+          `import { GraphQLService } from '@docebo/hydra/lib/services/graphql.service';`,
+        ]
+      );
     }
 
     const defs: Record<string, { path: string; module: string }> = {};
@@ -272,7 +278,11 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
 ${camelCase(o.node.name.value)}(variables${optionalVariables ? '?' : ''}: ${
           o.operationVariablesTypes
         }, options?: ${options}) {
-  return this.${camelCase(o.serviceName)}.${actionType(o.operationType)}(variables, options)
+  const options_ = { ...options };
+  options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
+  return this.${camelCase(o.serviceName)}
+    .${actionType(o.operationType)}(variables, options_)
+    .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
 }`;
 
         let watchMethod;
@@ -283,7 +293,11 @@ ${camelCase(o.node.name.value)}(variables${optionalVariables ? '?' : ''}: ${
 ${camelCase(o.node.name.value)}Watch(variables${optionalVariables ? '?' : ''}: ${
             o.operationVariablesTypes
           }, options?: WatchQueryOptionsAlone<${o.operationVariablesTypes}>) {
-  return this.${camelCase(o.serviceName)}.watch(variables, options)
+  const options_ = { ...options };
+  options_.fetchPolicy = options_.fetchPolicy || 'no-cache';
+  return this.${camelCase(o.serviceName)}
+    .watch(variables, options_)
+    .pipe(takeWhile(res => !this.graphQlService.responseWithSpecificErrors(res)));
 }`;
         }
         return [method, watchMethod].join('');
@@ -291,7 +305,7 @@ ${camelCase(o.node.name.value)}Watch(variables${optionalVariables ? '?' : ''}: $
       .map(s => indentMultiline(s, 2));
 
     // Inject the generated services in the constructor
-    const injectString = (service: string) => `private ${camelCase(service)}: ${service}`;
+    const injectString = (service: string) => `private readonly ${camelCase(service)}: ${service}`;
     const injections = this._operationsToInclude
       .map(op => injectString(op.serviceName))
       .map(s => indentMultiline(s, 3))
@@ -318,6 +332,7 @@ ${camelCase(o.node.name.value)}Watch(variables${optionalVariables ? '?' : ''}: $
   @Injectable(${providedIn})
   export class ${serviceName} {
     constructor(
+      private readonly graphQlService: GraphQLService,
 ${injections}
     ) {}
   ${allPossibleActions.join('\n')}

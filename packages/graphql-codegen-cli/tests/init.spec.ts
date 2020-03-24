@@ -121,13 +121,13 @@ describe('init', () => {
     const output: any = config.generates['src/generated/graphql.ts'];
     expect(output.plugins).toContainEqual('typescript');
     expect(output.plugins).toContainEqual('typescript-operations');
-    expect(output.plugins).toContainEqual('typescript-apollo-angular');
+    expect(output.plugins).toContainEqual('typescript-apollo-angular-etchelon');
     expect(output.plugins).toHaveLength(3);
 
     // expected plugins
     expect(pkg.devDependencies).toHaveProperty('@graphql-codegen/typescript');
     expect(pkg.devDependencies).toHaveProperty('@graphql-codegen/typescript-operations');
-    expect(pkg.devDependencies).toHaveProperty('@graphql-codegen/typescript-apollo-angular');
+    expect(pkg.devDependencies).toHaveProperty('graphql-codegen-typescript-apollo-angular-etchelon');
     // should not have other plugins
     expect(Object.keys(pkg.devDependencies)).toHaveLength(3);
   });
@@ -379,14 +379,14 @@ describe('init', () => {
     const output: any = config.generates['src/generated/graphql.ts'];
     expect(output.plugins).toContainEqual('typescript');
     expect(output.plugins).toContainEqual('typescript-operations');
-    expect(output.plugins).toContainEqual('typescript-apollo-angular');
+    expect(output.plugins).toContainEqual('typescript-apollo-angular-etchelon');
 
     // script name should match what we provided
     expect(pkg.scripts[script]).toEqual('graphql-codegen --config codegen.yml');
     // expected plugins
     expect(pkg.devDependencies).toHaveProperty('@graphql-codegen/typescript');
     expect(pkg.devDependencies).toHaveProperty('@graphql-codegen/typescript-operations');
-    expect(pkg.devDependencies).toHaveProperty('@graphql-codegen/typescript-apollo-angular');
+    expect(pkg.devDependencies).toHaveProperty('graphql-codegen-typescript-apollo-angular-etchelon');
     // should not have these plugins
     expect(pkg.devDependencies).not.toHaveProperty('@graphql-codegen/typescript-resolvers');
 
@@ -485,7 +485,7 @@ describe('init', () => {
       expect(available).toHaveLength(6);
       expect(available).toContainEqual('typescript');
       expect(available).toContainEqual('typescript-operations');
-      expect(available).toContainEqual('typescript-apollo-angular');
+      expect(available).toContainEqual('typescript-apollo-angular-etchelon');
       expect(available).toContainEqual('typescript-graphql-files-modules');
       expect(available).toContainEqual('typescript-document-nodes');
       expect(available).toContainEqual('fragment-matcher');
@@ -493,7 +493,7 @@ describe('init', () => {
       expect(selected).toHaveLength(3);
       expect(selected).toContainEqual('typescript');
       expect(selected).toContainEqual('typescript-operations');
-      expect(selected).toContainEqual('typescript-apollo-angular');
+      expect(selected).toContainEqual('typescript-apollo-angular-etchelon');
     });
 
     it('react', () => {
@@ -587,7 +587,7 @@ describe('init', () => {
     plugins.forEach(pkg => {
       const { name } = require(`../../plugins/${pkg.pathInRepo}/package.json`);
 
-      expect(pkg.package.replace('@graphql-codegen/', '')).toEqual(pkg.value);
+      expect(pkg.package.replace('@graphql-codegen/', '').replace('graphql-codegen-', '')).toEqual(pkg.value);
       expect(pkg.package).toEqual(name);
     });
   });

@@ -59,8 +59,8 @@ export const plugins: Array<PluginOption> = [
   },
   {
     name: `TypeScript Apollo Angular ${italic('(typed GQL services)')}`,
-    package: '@graphql-codegen/typescript-apollo-angular',
-    value: 'typescript-apollo-angular',
+    package: 'graphql-codegen-typescript-apollo-angular-etchelon',
+    value: 'typescript-apollo-angular-etchelon',
     pathInRepo: 'typescript/apollo-angular',
     available: hasTag(Tags.angular),
     shouldBeSelected: () => true,

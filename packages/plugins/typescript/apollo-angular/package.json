@@ -1,8 +1,8 @@
 {
-  "name": "@graphql-codegen/typescript-apollo-angular",
-  "version": "1.13.1",
+  "name": "graphql-codegen-typescript-apollo-angular-etchelon",
+  "version": "1.13.3",
   "description": "GraphQL Code Generator plugin for generating ready-to-use Angular Components based on GraphQL operations",
-  "repository": "git@github.com:dotansimha/graphql-code-generator.git",
+  "repository": "git@github.com:Etchelon/graphql-code-generator.git",
   "license": "MIT",
   "scripts": {
     "lint": "eslint **/*.ts",
