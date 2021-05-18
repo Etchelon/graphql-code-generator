@@ -1,6 +1,7 @@
+import { Types } from '@graphql-codegen/plugin-helpers';
+import { generateFragmentImportStatement } from '@graphql-codegen/visitor-plugin-common';
+import { buildASTSchema, buildSchema, parse, printSchema } from 'graphql';
 import { preset } from '../src/index';
-import { parse, buildSchema, printSchema, buildASTSchema } from 'graphql';
-import { DocumentMode } from '@graphql-codegen/visitor-plugin-common';
 
 describe('near-operation-file preset', () => {
   const schemaDocumentNode = parse(/* GraphQL */ `
@@ -74,96 +75,92 @@ describe('near-operation-file preset', () => {
   ];
 
   describe('Issues', () => {
-    function extractPlugin<T = any>(plugins: any[], name: string): T[] {
-      const items: T[] = [];
+    it('#5002 - error when inline fragment does not specify the name of the type', async () => {
+      const testSchema = parse(/* GraphQL */ `
+        scalar Date
 
-      if (plugins && plugins.length > 0) {
-        for (const plugin of plugins) {
-          const pluginKey = Object.keys(plugin)[0];
-
-          if (pluginKey === name) {
-            items.push(plugin[pluginKey] as T);
-          }
+        schema {
+          query: Query
         }
-      }
 
-      return items;
-    }
+        type Query {
+          me: User!
+          user(id: ID!): User
+          allUsers: [User]
+          search(term: String!): [SearchResult!]!
+          myChats: [Chat!]!
+        }
 
-    it('#3525 - should not import FragmentDoc when its not needed or in use', async () => {
-      async function givenConfigAndPlugins(config: object, pluginName: string): Promise<boolean> {
-        const testSchema = buildSchema(/* GraphQL */ `
-          type Query {
-            getHotel(id: String!): HotelType!
-          }
+        enum Role {
+          USER
+          ADMIN
+        }
 
-          type HotelType {
-            name: String!
-          }
-        `);
-        const result = await preset.buildGeneratesSection({
+        interface Node {
+          id: ID!
+        }
+
+        union SearchResult = User | Chat | ChatMessage
+
+        type User implements Node {
+          id: ID!
+          username: String!
+          email: String!
+          role: Role!
+        }
+
+        type Chat implements Node {
+          id: ID!
+          users: [User!]!
+          messages: [ChatMessage!]!
+        }
+
+        type ChatMessage implements Node {
+          id: ID!
+          content: String!
+          time: Date!
+          user: User!
+        }
+      `);
+
+      const operations = [
+        {
+          location: 'test.graphql',
+          document: parse(/* GraphQL */ `
+            query chats {
+              myChats {
+                ...ChatFields
+              }
+            }
+
+            fragment ChatFields on Chat {
+              id
+              ... @include(if: true) {
+                id
+                messages {
+                  id
+                }
+              }
+            }
+          `),
+        },
+      ];
+
+      expect(async () => {
+        await preset.buildGeneratesSection({
           baseOutputDir: './src/',
-          config,
+          config: {},
           presetConfig: {
-            cwd: '/some/deep/path',
+            folder: '__generated__',
             baseTypesPath: 'types.ts',
           },
-          schemaAst: testSchema,
-          schema: parse(printSchema(testSchema)),
-          documents: [
-            {
-              location: '/some/deep/path/src/graphql/queries.graphql',
-              document: parse(/* GraphQL */ `
-                query getHotel($id: String!) {
-                  getHotel(id: $id) {
-                    ...HotelType
-                  }
-                }
-              `),
-            },
-            {
-              location: '/some/deep/path/src/graphql/fragments.graphql',
-              document: parse(/* GraphQL */ `
-                fragment HotelType on HotelType {
-                  name
-                }
-              `),
-            },
-          ],
-          plugins: [{ [pluginName]: {} }],
-          pluginMap: { [pluginName]: {} as any },
+          schema: testSchema,
+          schemaAst: buildASTSchema(testSchema),
+          documents: operations,
+          plugins: [],
+          pluginMap: {},
         });
-
-        const queryFileImports = extractPlugin<string>(result[0].plugins, 'add');
-
-        return !!queryFileImports.find(i => i.includes('FragmentDoc'));
-      }
-
-      // We don't have a plugin that creates FragmentDoc, no need to import it
-      expect(await givenConfigAndPlugins({}, 'typescript-operations')).toBeFalsy();
-
-      // document mode causes to skip the need for import
-      expect(
-        await givenConfigAndPlugins({ documentMode: DocumentMode.documentNode }, 'typescript-react-apollo')
-      ).toBeFalsy();
-      expect(
-        await givenConfigAndPlugins({ documentMode: DocumentMode.external }, 'typescript-react-apollo')
-      ).toBeFalsy();
-      expect(
-        await givenConfigAndPlugins(
-          { documentMode: DocumentMode.documentNodeImportFragments },
-          'typescript-react-apollo'
-        )
-      ).toBeFalsy();
-
-      // If we do have a plugin that creates FragmentDoc, and the mode is correct
-      expect(await givenConfigAndPlugins({}, 'typescript-react-apollo')).toBeTruthy();
-      expect(
-        await givenConfigAndPlugins({ documentMode: DocumentMode.graphQLTag }, 'typescript-react-apollo')
-      ).toBeTruthy();
-      expect(
-        await givenConfigAndPlugins({ documentMode: DocumentMode.string }, 'typescript-react-apollo')
-      ).toBeTruthy();
+      }).not.toThrow();
     });
 
     it('#3066 - should respect higher level of fragments usage, and ignore fragments per input', async () => {
@@ -226,7 +223,7 @@ describe('near-operation-file preset', () => {
         });
 
         expect(result[0].filename).toContain(`queries.generated.ts`);
-        expect(result[0].plugins[1].add).toBe(expected);
+        expect(getFragmentImportsFromResult(result)).toBe(expected);
       };
 
       await doTest(
@@ -306,15 +303,18 @@ describe('near-operation-file preset', () => {
       expect(result.map(o => o.plugins)[0]).toEqual(
         expect.arrayContaining([
           {
-            add: `import * as Types from '../types';\n`,
+            add: {
+              content: `import * as Types from '../types';\n`,
+            },
           },
           {
             'typescript-react-apollo': {},
           },
-          {
-            add: `import { UserFieldsFragmentDoc, UserFieldsFragment } from './user-fragment.generated';`,
-          },
         ])
+      );
+
+      expect(getFragmentImportsFromResult(result)).toContain(
+        `import { UserFieldsFragmentDoc, UserFieldsFragment } from './user-fragment.generated';`
       );
     });
 
@@ -357,15 +357,18 @@ describe('near-operation-file preset', () => {
       expect(result.map(o => o.plugins)[0]).toEqual(
         expect.arrayContaining([
           {
-            add: `import * as Types from '../types';\n`,
+            add: {
+              content: `import * as Types from '../types';\n`,
+            },
           },
           {
             'typescript-react-apollo': {},
           },
-          {
-            add: `import { UserFieldsFragmentFragmentDoc, UserFieldsFragmentFragment } from './user-fragment.generated';`,
-          },
         ])
+      );
+
+      expect(getFragmentImportsFromResult(result)).toContain(
+        `import { UserFieldsFragmentFragmentDoc, UserFieldsFragmentFragment } from './user-fragment.generated';`
       );
     });
   });
@@ -480,7 +483,39 @@ describe('near-operation-file preset', () => {
     });
 
     expect(result.map(o => o.plugins)[0]).toEqual(
-      expect.arrayContaining([{ add: `import * as Types from '../types';\n` }])
+      expect.arrayContaining([
+        {
+          add: {
+            content: `import * as Types from '../types';\n`,
+          },
+        },
+      ])
+    );
+  });
+
+  it('Should prepend the "add" plugin with the correct import when used with package name', async () => {
+    const result = await preset.buildGeneratesSection({
+      baseOutputDir: './src/',
+      config: {},
+      presetConfig: {
+        cwd: '/some/deep/path',
+        baseTypesPath: '~@custom-package/types',
+      },
+      schema: schemaDocumentNode,
+      schemaAst: schemaNode,
+      documents: testDocuments.slice(0, 2),
+      plugins: [{ typescript: {} }],
+      pluginMap: { typescript: {} as any },
+    });
+
+    expect(result.map(o => o.plugins)[0]).toEqual(
+      expect.arrayContaining([
+        {
+          add: {
+            content: `import * as Types from '@custom-package/types';\n`,
+          },
+        },
+      ])
     );
   });
 
@@ -503,7 +538,13 @@ describe('near-operation-file preset', () => {
     });
 
     expect(result.map(o => o.plugins)[1]).toEqual(
-      expect.arrayContaining([{ add: `import * as Types from '../types';\n` }])
+      expect.arrayContaining([
+        {
+          add: {
+            content: `import * as Types from '../types';\n`,
+          },
+        },
+      ])
     );
   });
 
@@ -581,7 +622,7 @@ describe('near-operation-file preset', () => {
     });
 
     expect(result.map(o => o.plugins)[0]).not.toEqual(
-      expect.arrayContaining([{ add: `import * as Types from '../types';\n` }])
+      expect.arrayContaining([{ add: { content: `import * as Types from '../types';\n` } }])
     );
   });
 
@@ -613,7 +654,13 @@ describe('near-operation-file preset', () => {
     });
 
     expect(result.map(o => o.plugins)[0]).toEqual(
-      expect.arrayContaining([{ add: `import * as Types from './src/types';\n` }])
+      expect.arrayContaining([
+        {
+          add: {
+            content: `import * as Types from './src/types';\n`,
+          },
+        },
+      ])
     );
   });
 
@@ -638,7 +685,13 @@ describe('near-operation-file preset', () => {
       pluginMap: { 'typescript-react-apollo': {} as any },
     });
     expect(result.map(o => o.plugins)[0]).toEqual(
-      expect.arrayContaining([{ add: `import * as Types from '../../../types';\n` }])
+      expect.arrayContaining([
+        {
+          add: {
+            content: `import * as Types from '../../../types';\n`,
+          },
+        },
+      ])
     );
   });
 
@@ -663,7 +716,13 @@ describe('near-operation-file preset', () => {
       pluginMap: { 'typescript-react-apollo': {} as any },
     });
     expect(result.map(o => o.plugins)[0]).toEqual(
-      expect.arrayContaining([{ add: `import * as Types from './types';\n` }])
+      expect.arrayContaining([
+        {
+          add: {
+            content: `import * as Types from './types';\n`,
+          },
+        },
+      ])
     );
   });
 
@@ -688,7 +747,13 @@ describe('near-operation-file preset', () => {
       pluginMap: { 'typescript-react-apollo': {} as any },
     });
     expect(result.map(o => o.plugins)[0]).toEqual(
-      expect.arrayContaining([{ add: `import * as Types from '@internal/types';\n` }])
+      expect.arrayContaining([
+        {
+          add: {
+            content: `import * as Types from '@internal/types';\n`,
+          },
+        },
+      ])
     );
   });
 
@@ -746,15 +811,74 @@ describe('near-operation-file preset', () => {
     expect(result.map(o => o.plugins)[0]).toEqual(
       expect.arrayContaining([
         {
-          add: `import * as Types from '../types';\n`,
+          add: {
+            content: `import * as Types from '../types';\n`,
+          },
         },
         {
           'typescript-react-apollo': {},
         },
+      ])
+    );
+
+    expect(getFragmentImportsFromResult(result)).toContain(
+      `import { UserFieldsFragmentDoc, UserFieldsFragment } from './user-fragment.generated';`
+    );
+  });
+
+  it('Should allow external fragments to be imported from packages with function', async () => {
+    const spy = jest.fn();
+    await preset.buildGeneratesSection({
+      baseOutputDir: './src/',
+      config: {},
+      presetConfig: {
+        cwd: '/some/deep/path',
+        baseTypesPath: '~@types',
+        importAllFragmentsFrom: spy.mockReturnValue(false),
+      },
+      schemaAst: schemaNode,
+      schema: schemaDocumentNode,
+      documents: testDocuments.slice(0, 2),
+      plugins: [{ 'typescript-react-apollo': {} }],
+      pluginMap: { 'typescript-react-apollo': {} as any },
+    });
+
+    expect(spy.mock.calls.length).toBe(1);
+    expect(spy.mock.calls[0][1]).toBe('/some/deep/path/src/graphql/me-query.generated.ts');
+    expect(spy.mock.calls[0][0].path).toBe('/some/deep/path/src/graphql/user-fragment.generated.ts');
+  });
+
+  it('Should allow external fragments to be imported from packages', async () => {
+    const result = await preset.buildGeneratesSection({
+      baseOutputDir: './src/',
+      config: {},
+      presetConfig: {
+        cwd: '/some/deep/path',
+        baseTypesPath: '~@types',
+        importAllFragmentsFrom: `~@fragments`,
+      },
+      schemaAst: schemaNode,
+      schema: schemaDocumentNode,
+      documents: testDocuments.slice(0, 2),
+      plugins: [{ 'typescript-react-apollo': {} }],
+      pluginMap: { 'typescript-react-apollo': {} as any },
+    });
+
+    expect(result.map(o => o.plugins)[0]).toEqual(
+      expect.arrayContaining([
         {
-          add: `import { UserFieldsFragmentDoc, UserFieldsFragment } from './user-fragment.generated';`,
+          add: {
+            content: `import * as Types from '@types';\n`,
+          },
+        },
+        {
+          'typescript-react-apollo': {},
         },
       ])
+    );
+
+    expect(getFragmentImportsFromResult(result)).toContain(
+      `import { UserFieldsFragmentDoc, UserFieldsFragment } from '@fragments';`
     );
   });
 
@@ -779,12 +903,8 @@ describe('near-operation-file preset', () => {
       pluginMap: { 'typescript-react-apollo': {} as any },
     });
 
-    expect(result.map(o => o.plugins)[0]).toEqual(
-      expect.arrayContaining([
-        {
-          add: `import { UserFieldsFragmentDoc, UserFieldsFragment } from '../../../user-fragment.generated';`,
-        },
-      ])
+    expect(getFragmentImportsFromResult(result)).toContain(
+      `import { UserFieldsFragmentDoc, UserFieldsFragment } from '../../../user-fragment.generated';`
     );
   });
 
@@ -809,12 +929,13 @@ describe('near-operation-file preset', () => {
       pluginMap: { 'typescript-react-apollo': {} as any },
     });
 
-    expect(result.map(o => o.plugins)[0]).toEqual(
-      expect.arrayContaining([
-        {
-          add: `import { UserFieldsFragmentDoc, UserFieldsFragment } from './nested/down/here/user-fragment.generated';`,
-        },
-      ])
+    expect(getFragmentImportsFromResult(result)).toContain(
+      `import { UserFieldsFragmentDoc, UserFieldsFragment } from './nested/down/here/user-fragment.generated';`
     );
   });
 });
+
+const getFragmentImportsFromResult = (result: Types.GenerateOptions[]) =>
+  result[0].config.fragmentImports
+    .map(importStatement => generateFragmentImportStatement(importStatement, 'both'))
+    .join('\n');

@@ -4,16 +4,10 @@ import { plugin } from '../src/index';
 import { parse, buildClientSchema, GraphQLSchema } from 'graphql';
 import { Types, mergeOutputs } from '@graphql-codegen/plugin-helpers';
 import { plugin as tsPlugin, TypeScriptPluginConfig } from '@graphql-codegen/typescript';
-import { plugin as tsDocumentsPlugin } from '@graphql-codegen/typescript-operations';
-import nock from 'nock';
-import { TypeScriptDocumentsPluginConfig } from '@graphql-codegen/typescript-operations/src/config';
+import { plugin as tsDocumentsPlugin, TypeScriptDocumentsPluginConfig } from '@graphql-codegen/typescript-operations';
 import { RawGraphQLRequestPluginConfig } from '../src/config';
 
 describe('graphql-request', () => {
-  beforeAll(() => nock.disableNetConnect());
-  afterAll(() => nock.enableNetConnect());
-  afterEach(() => nock.cleanAll());
-
   const schema = buildClientSchema(require('../../../../../dev-test/githunt/schema.json'));
   const basicDoc = parse(/* GraphQL */ `
     query feed {
@@ -61,7 +55,7 @@ describe('graphql-request', () => {
       usage,
     ]);
 
-    await validateTs(m);
+    validateTs(m);
 
     return m;
   };
@@ -78,7 +72,7 @@ describe('graphql-request', () => {
 async function test() {
   const client = new GraphQLClient('');
   const sdk = getSdk(client);
-  
+
   await sdk.feed();
   await sdk.feed3();
   await sdk.feed4();
@@ -93,6 +87,9 @@ async function test() {
 }`;
       const output = await validate(result, config, docs, schema, usage);
 
+      expect(result.content).toContain(
+        `(FeedDocument, variables, {...requestHeaders, ...wrappedRequestHeaders}), 'feed');`
+      );
       expect(output).toMatchSnapshot();
     });
 
@@ -107,7 +104,7 @@ async function test() {
 async function test() {
   const client = new GraphQLClient('');
   const sdk = getSdk(client);
-  
+
   await sdk.feed();
   await sdk.feed3();
   await sdk.feed4();
@@ -143,7 +140,7 @@ async function test() {
   }
 
   const sdk = getSdk(client, functionWrapper);
-  
+
   await sdk.feed();
   await sdk.feed3();
   await sdk.feed4();
@@ -159,6 +156,107 @@ async function test() {
       const output = await validate(result, config, docs, schema, usage);
 
       expect(output).toMatchSnapshot();
+    });
+
+    it('Should support useTypeImports', async () => {
+      const config = { useTypeImports: true };
+      const docs = [{ location: '', document: basicDoc }];
+      const result = (await plugin(schema, docs, config, {
+        outputFile: 'graphql.ts',
+      })) as Types.ComplexPluginOutput;
+
+      const usage = `
+async function test() {
+  const Client = require('graphql-request').GraphQLClient;
+  const client = new Client('');
+  const sdk = getSdk(client);
+
+  await sdk.feed();
+  await sdk.feed3();
+  await sdk.feed4();
+
+  const result = await sdk.feed2({ v: "1" });
+
+  if (result.feed) {
+    if (result.feed[0]) {
+      const id = result.feed[0].id
+    }
+  }
+}`;
+      const output = await validate(result, config, docs, schema, usage);
+
+      expect(output).toMatchSnapshot();
+    });
+
+    it('Should support rawRequest when documentMode = "documentNode"', async () => {
+      const config = { rawRequest: true };
+      const docs = [{ location: '', document: basicDoc }];
+      const result = (await plugin(schema, docs, config, {
+        outputFile: 'graphql.ts',
+      })) as Types.ComplexPluginOutput;
+
+      const usage = `
+async function test() {
+  const Client = require('graphql-request').GraphQLClient;
+  const client = new Client('');
+  const sdk = getSdk(client);
+
+  await sdk.feed();
+  await sdk.feed3();
+  await sdk.feed4();
+
+  const result = await sdk.feed2({ v: "1" });
+
+  if (result.feed) {
+    if (result.feed[0]) {
+      const id = result.feed[0].id
+    }
+  }
+}`;
+      const output = await validate(result, config, docs, schema, usage);
+
+      expect(output).toMatchSnapshot();
+    });
+  });
+
+  describe('issues', () => {
+    it('#5386 - should provide a nice error when dealing with anonymous operations', async () => {
+      const doc = parse(/* GraphQL */ `
+        query {
+          feed {
+            id
+          }
+        }
+      `);
+
+      const warnSpy = jest.spyOn(console, 'warn');
+      const docs = [{ location: 'file.graphlq', document: doc }];
+      const result = (await plugin(schema, docs, {}, {})) as Types.ComplexPluginOutput;
+      expect(result.content).not.toContain('feed');
+      expect(warnSpy.mock.calls.length).toBe(1);
+      expect(warnSpy.mock.calls[0][0]).toContain('Anonymous GraphQL operation was ignored');
+      expect(warnSpy.mock.calls[0][1]).toContain('feed');
+      warnSpy.mockRestore();
+    });
+
+    it('#4748 - integration with importDocumentNodeExternallyFrom', async () => {
+      const config = { importDocumentNodeExternallyFrom: './operations', documentMode: DocumentMode.external };
+      const docs = [{ location: '', document: basicDoc }];
+      const result = (await plugin(schema, docs, config, {
+        outputFile: 'graphql.ts',
+      })) as Types.ComplexPluginOutput;
+      const output = await validate(result, config, docs, schema, '');
+
+      expect(output).toContain(`import * as Operations from './operations';`);
+      expect(output).toContain(
+        `(Operations.FeedDocument, variables, {...requestHeaders, ...wrappedRequestHeaders}), 'feed');`
+      );
+      expect(output).toContain(
+        `(Operations.Feed2Document, variables, {...requestHeaders, ...wrappedRequestHeaders}), 'feed2');`
+      );
+      expect(output).toContain(
+        `(Operations.Feed3Document, variables, {...requestHeaders, ...wrappedRequestHeaders}), 'feed3');`
+      );
     });
   });
 });

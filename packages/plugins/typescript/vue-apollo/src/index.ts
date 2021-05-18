@@ -5,7 +5,7 @@ import { VueApolloVisitor } from './visitor';
 import { extname } from 'path';
 import { VueApolloRawPluginConfig } from './config';
 
-export const plugin: PluginFunction<VueApolloRawPluginConfig> = (
+export const plugin: PluginFunction<VueApolloRawPluginConfig, Types.ComplexPluginOutput> = (
   schema: GraphQLSchema,
   documents: Types.DocumentFile[],
   config: VueApolloRawPluginConfig
@@ -42,8 +42,8 @@ export const validate: PluginValidateFn<any> = async (
   _config: VueApolloRawPluginConfig,
   outputFile: string
 ) => {
-  if (extname(outputFile) !== '.ts') {
-    throw new Error(`Plugin "vue-apollo" requires extension to be ".ts"!`);
+  if (extname(outputFile) !== '.ts' && extname(outputFile) !== '.tsx') {
+    throw new Error(`Plugin "vue-apollo" requires extension to be ".ts" or ".tsx"!`);
   }
 };
 

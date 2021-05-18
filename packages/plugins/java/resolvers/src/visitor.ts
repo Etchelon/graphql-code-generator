@@ -7,8 +7,8 @@ import {
   indent,
   indentMultiline,
   getBaseTypeNode,
-  buildScalars,
   ExternalParsedMapper,
+  buildScalarsFromConfig,
 } from '@graphql-codegen/visitor-plugin-common';
 import { JavaResolversPluginRawConfig } from './config';
 import { JAVA_SCALARS, JavaDeclarationBlock, wrapTypeWithModifiers } from '@graphql-codegen/java-common';
@@ -39,7 +39,7 @@ export class JavaResolversVisitor extends BaseVisitor<JavaResolversPluginRawConf
       defaultMapper: parseMapper(rawConfig.defaultMapper || 'Object'),
       className: rawConfig.className || 'Resolvers',
       listType: rawConfig.listType || 'Iterable',
-      scalars: buildScalars(_schema, rawConfig.scalars, JAVA_SCALARS),
+      scalars: buildScalarsFromConfig(_schema, rawConfig, JAVA_SCALARS, 'Object'),
     });
   }
 
@@ -117,7 +117,7 @@ export class JavaResolversVisitor extends BaseVisitor<JavaResolversPluginRawConf
       .withBlock(node.fields.map(f => indent((f as any)(false))).join('\n')).string;
   }
 
-  FieldDefinition(node: FieldDefinitionNode, key: string | number, parent: any) {
+  FieldDefinition(node: FieldDefinitionNode, key: string | number, _parent: any) {
     return (isInterface: boolean) => {
       const baseType = getBaseTypeNode(node.type);
       const typeToUse = this.getTypeToUse(baseType);

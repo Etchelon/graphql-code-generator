@@ -1,13 +1,9 @@
 import * as Types from '../types.d';
 
-import gql from 'graphql-tag';
-import * as React from 'react';
-import * as ApolloReactCommon from '@apollo/react-common';
-import * as ApolloReactComponents from '@apollo/react-components';
-import * as ApolloReactHoc from '@apollo/react-hoc';
-export type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
-
-export type HeroAppearsInQueryVariables = {};
+import { gql } from '@apollo/client';
+import * as Apollo from '@apollo/client';
+const defaultOptions = {};
+export type HeroAppearsInQueryVariables = Types.Exact<{ [key: string]: never }>;
 
 export type HeroAppearsInQuery = { __typename?: 'Query' } & {
   hero?: Types.Maybe<
@@ -24,39 +20,34 @@ export const HeroAppearsInDocument = gql`
     }
   }
 `;
-export type HeroAppearsInComponentProps = Omit<
-  ApolloReactComponents.QueryComponentOptions<HeroAppearsInQuery, HeroAppearsInQueryVariables>,
-  'query'
->;
 
-export const HeroAppearsInComponent = (props: HeroAppearsInComponentProps) => (
-  <ApolloReactComponents.Query<HeroAppearsInQuery, HeroAppearsInQueryVariables>
-    query={HeroAppearsInDocument}
-    {...props}
-  />
-);
-
-export type HeroAppearsInProps<TChildProps = {}> = ApolloReactHoc.DataProps<
-  HeroAppearsInQuery,
-  HeroAppearsInQueryVariables
-> &
-  TChildProps;
-export function withHeroAppearsIn<TProps, TChildProps = {}>(
-  operationOptions?: ApolloReactHoc.OperationOption<
-    TProps,
-    HeroAppearsInQuery,
-    HeroAppearsInQueryVariables,
-    HeroAppearsInProps<TChildProps>
-  >
+/**
+ * __useHeroAppearsInQuery__
+ *
+ * To run a query within a React component, call `useHeroAppearsInQuery` and pass it any options that fit your needs.
+ * When your component renders, `useHeroAppearsInQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useHeroAppearsInQuery({
+ *   variables: {
+ *   },
+ * });
+ */
+export function useHeroAppearsInQuery(
+  baseOptions?: Apollo.QueryHookOptions<HeroAppearsInQuery, HeroAppearsInQueryVariables>
 ) {
-  return ApolloReactHoc.withQuery<
-    TProps,
-    HeroAppearsInQuery,
-    HeroAppearsInQueryVariables,
-    HeroAppearsInProps<TChildProps>
-  >(HeroAppearsInDocument, {
-    alias: 'heroAppearsIn',
-    ...operationOptions,
-  });
+  const options = { ...defaultOptions, ...baseOptions };
+  return Apollo.useQuery<HeroAppearsInQuery, HeroAppearsInQueryVariables>(HeroAppearsInDocument, options);
 }
-export type HeroAppearsInQueryResult = ApolloReactCommon.QueryResult<HeroAppearsInQuery, HeroAppearsInQueryVariables>;
+export function useHeroAppearsInLazyQuery(
+  baseOptions?: Apollo.LazyQueryHookOptions<HeroAppearsInQuery, HeroAppearsInQueryVariables>
+) {
+  const options = { ...defaultOptions, ...baseOptions };
+  return Apollo.useLazyQuery<HeroAppearsInQuery, HeroAppearsInQueryVariables>(HeroAppearsInDocument, options);
+}
+export type HeroAppearsInQueryHookResult = ReturnType<typeof useHeroAppearsInQuery>;
+export type HeroAppearsInLazyQueryHookResult = ReturnType<typeof useHeroAppearsInLazyQuery>;
+export type HeroAppearsInQueryResult = Apollo.QueryResult<HeroAppearsInQuery, HeroAppearsInQueryVariables>;

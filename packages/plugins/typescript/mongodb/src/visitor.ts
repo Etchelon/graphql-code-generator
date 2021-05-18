@@ -5,10 +5,8 @@ import {
   getConfigValue,
   ParsedConfig,
   BaseVisitor,
-  buildScalars,
-  DEFAULT_SCALARS,
+  buildScalarsFromConfig,
 } from '@graphql-codegen/visitor-plugin-common';
-import { TypeScriptOperationVariablesToObject } from '@graphql-codegen/typescript';
 import autoBind from 'auto-bind';
 import { Directives, TypeScriptMongoPluginConfig } from './config';
 import {
@@ -23,6 +21,7 @@ import {
   InterfaceTypeDefinitionNode,
   UnionTypeDefinitionNode,
 } from 'graphql';
+import { wrapTypeNodeWithModifiers } from '@graphql-codegen/visitor-plugin-common';
 
 type AdditionalField = { path: string; type: string };
 export interface TypeScriptMongoPluginParsedConfig extends ParsedConfig {
@@ -55,8 +54,6 @@ function resolveObjectId(pointer: string | null | undefined): { identifier: stri
 }
 
 export class TsMongoVisitor extends BaseVisitor<TypeScriptMongoPluginConfig, TypeScriptMongoPluginParsedConfig> {
-  private _variablesTransformer: TypeScriptOperationVariablesToObject;
-
   constructor(private _schema: GraphQLSchema, pluginConfig: TypeScriptMongoPluginConfig) {
     super(pluginConfig, ({
       dbTypeSuffix: pluginConfig.dbTypeSuffix || 'DbObject',
@@ -66,10 +63,9 @@ export class TsMongoVisitor extends BaseVisitor<TypeScriptMongoPluginConfig, Typ
       idFieldName: pluginConfig.idFieldName || '_id',
       enumsAsString: getConfigValue<boolean>(pluginConfig.enumsAsString, true),
       avoidOptionals: getConfigValue<boolean>(pluginConfig.avoidOptionals, false),
-      scalars: buildScalars(_schema, pluginConfig.scalars, DEFAULT_SCALARS),
+      scalars: buildScalarsFromConfig(_schema, pluginConfig),
     } as Partial<TypeScriptMongoPluginParsedConfig>) as any);
     autoBind(this);
-    this._variablesTransformer = new TypeScriptOperationVariablesToObject(this.scalars, this.convertName, false, false);
   }
 
   public get objectIdImport(): string {
@@ -152,7 +148,7 @@ export class TsMongoVisitor extends BaseVisitor<TypeScriptMongoPluginConfig, Typ
   private _handleIdField(fieldNode: FieldDefinitionNode, tree: FieldsTree, addOptionalSign: boolean): void {
     tree.addField(
       `${this.config.idFieldName}${addOptionalSign ? '?' : ''}`,
-      this._variablesTransformer.wrapAstTypeWithModifiers(this.config.objectIdType, fieldNode.type)
+      wrapTypeNodeWithModifiers(this.config.objectIdType, fieldNode.type)
     );
   }
 
@@ -168,8 +164,8 @@ export class TsMongoVisitor extends BaseVisitor<TypeScriptMongoPluginConfig, Typ
     const type = this.convertName(coreType, { suffix: this.config.dbTypeSuffix });
 
     tree.addField(
-      mapPath || `${fieldNode.name.value}${addOptionalSign ? '?' : ''}`,
-      this._variablesTransformer.wrapAstTypeWithModifiers(`${type}['${this.config.idFieldName}']`, fieldNode.type)
+      `${mapPath || fieldNode.name.value}${addOptionalSign ? '?' : ''}`,
+      wrapTypeNodeWithModifiers(`${type}['${this.config.idFieldName}']`, fieldNode.type)
     );
   }
 
@@ -197,8 +193,8 @@ export class TsMongoVisitor extends BaseVisitor<TypeScriptMongoPluginConfig, Typ
     }
 
     tree.addField(
-      mapPath || `${fieldNode.name.value}${addOptionalSign ? '?' : ''}`,
-      overrideType || this._variablesTransformer.wrapAstTypeWithModifiers(type, fieldNode.type)
+      `${mapPath || fieldNode.name.value}${addOptionalSign ? '?' : ''}`,
+      overrideType || wrapTypeNodeWithModifiers(type, fieldNode.type)
     );
   }
 
@@ -212,8 +208,8 @@ export class TsMongoVisitor extends BaseVisitor<TypeScriptMongoPluginConfig, Typ
     const type = this.convertName(coreType, { suffix: this.config.dbTypeSuffix });
 
     tree.addField(
-      mapPath || `${fieldNode.name.value}${addOptionalSign ? '?' : ''}`,
-      this._variablesTransformer.wrapAstTypeWithModifiers(type, fieldNode.type)
+      `${mapPath || fieldNode.name.value}${addOptionalSign ? '?' : ''}`,
+      wrapTypeNodeWithModifiers(type, fieldNode.type)
     );
   }
 
@@ -244,12 +240,14 @@ export class TsMongoVisitor extends BaseVisitor<TypeScriptMongoPluginConfig, Typ
   }
 
   private _addAdditionalFields(tree: FieldsTree, additioalFields: AdditionalField[] | null): void {
+    const avoidOptionals = this.config.avoidOptionals;
     if (!additioalFields || additioalFields.length === 0) {
       return;
     }
 
     for (const field of additioalFields) {
-      tree.addField(field.path, field.type);
+      const isOptional = field.path.includes('?');
+      tree.addField(`${isOptional && avoidOptionals ? field.path.replace(/\?/g, '') : field.path}`, field.type);
     }
   }
 

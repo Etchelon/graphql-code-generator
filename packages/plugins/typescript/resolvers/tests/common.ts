@@ -8,11 +8,19 @@ export const schema = buildSchema(/* GraphQL */ `
     foo: String!
     otherType: MyOtherType
     withArgs(arg: String, arg2: String!): String
+    unionChild: ChildUnion
+  }
+
+  type Child {
+    bar: String!
+    parent: MyType
   }
 
   type MyOtherType {
     bar: String!
   }
+
+  union ChildUnion = Child | MyOtherType
 
   type Query {
     something: MyType!
@@ -37,8 +45,17 @@ export const schema = buildSchema(/* GraphQL */ `
   directive @myDirective(arg: Int!, arg2: String!, arg3: Boolean!) on FIELD
 `);
 
-export const validate = async (content: Types.PluginOutput, config: any = {}, pluginSchema = schema) => {
-  const mergedContent = mergeOutputs([await tsPlugin(pluginSchema, [], config, { outputFile: '' }), content]);
+export const validate = async (
+  content: Types.PluginOutput,
+  config: any = {},
+  pluginSchema = schema,
+  additionalCode = ''
+) => {
+  const mergedContent = mergeOutputs([
+    await tsPlugin(pluginSchema, [], config, { outputFile: '' }),
+    content,
+    additionalCode,
+  ]);
 
   validateTs(mergedContent);
 

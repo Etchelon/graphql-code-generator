@@ -494,8 +494,8 @@ describe('Compatibility Plugin', () => {
 
     expect(result).toBeSimilarStringTo(`export namespace MoreUserFields {
       export type Fragment = MoreUserFieldsFragment;
-      export type Friends = MoreUserFieldsFragment['friends'][0];
-      export type _Friends = MoreUserFieldsFragment['friends'][0]['friends'][0];
+      export type Friends = MoreUserFieldsFragment['friends'][number];
+      export type _Friends = MoreUserFieldsFragment['friends'][number]['friends'][number];
     }`);
 
     await validate(result, schema, ast, {});
@@ -604,7 +604,7 @@ describe('Compatibility Plugin', () => {
 
     expect(result).toContain('export type Query = MeQuery;');
     expect(result).toContain(`export type Me = MeQuery['me'];`);
-    expect(result).toContain(`export type Friends = MeQuery['me']['friends'][0];`);
+    expect(result).toContain(`export type Friends = MeQuery['me']['friends'][number];`);
   });
 
   it('Should generate mapping to 1.0 types according to fields usage and selection set when array is in use and have duplicate names', async () => {
@@ -613,9 +613,11 @@ describe('Compatibility Plugin', () => {
 
     expect(result).toContain('export type Query = MeQuery;');
     expect(result).toContain(`export type Me = MeQuery['me'];`);
-    expect(result).toContain(`export type Friends = MeQuery['me']['friends'][0];`);
-    expect(result).toContain(`export type _Friends = MeQuery['me']['friends'][0]['friends'][0];`);
-    expect(result).toContain(`export type __Friends = MeQuery['me']['friends'][0]['friends'][0]['friends'][0];`);
+    expect(result).toContain(`export type Friends = MeQuery['me']['friends'][number];`);
+    expect(result).toContain(`export type _Friends = MeQuery['me']['friends'][number]['friends'][number];`);
+    expect(result).toContain(
+      `export type __Friends = MeQuery['me']['friends'][number]['friends'][number]['friends'][number];`
+    );
     await validate(result, schema, ast);
     expect(mergeOutputs([result])).toMatchSnapshot();
   });
@@ -624,7 +626,7 @@ describe('Compatibility Plugin', () => {
     const ast = [{ location: '', document: basicQuery }];
     const result = await plugin(schema, ast, {});
 
-    expect(result).toContain(`export type Me = UserFieldsFragment;`);
+    expect(result).toContain(`export type Me = MeQuery['me'];`);
     await validate(result, schema, ast, {});
   });
 
@@ -637,7 +639,7 @@ describe('Compatibility Plugin', () => {
       `export type UserInlineFragment = ({ __typename: 'User' } & Pick<Me3Query['me'], 'id' | 'name' | 'friends'>);`
     );
     expect(result).toContain(
-      `export type Friends = ({ __typename: 'User' } & Pick<Me3Query['me'], 'id' | 'name' | 'friends'>)['friends'][0];`
+      `export type Friends = ({ __typename: 'User' } & Pick<Me3Query['me'], 'id' | 'name' | 'friends'>)['friends'][number];`
     );
     await validate(result, schema, ast, {});
   });
@@ -651,10 +653,10 @@ describe('Compatibility Plugin', () => {
       `export type UserInlineFragment = ({ __typename: 'User' } & Pick<Me3Query['me'], 'id' | 'name' | 'friends'>);`
     );
     expect(result).toContain(
-      `export type Friends = ({ __typename: 'User' } & Pick<Me3Query['me'], 'id' | 'name' | 'friends'>)['friends'][0];`
+      `export type Friends = ({ __typename: 'User' } & Pick<Me3Query['me'], 'id' | 'name' | 'friends'>)['friends'][number];`
     );
     expect(result).toContain(
-      `export type _UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0], 'id' | 'name'>);`
+      `export type _UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number], 'id' | 'name'>);`
     );
     await validate(result, schema, ast, {});
   });
@@ -683,7 +685,7 @@ describe('Compatibility Plugin', () => {
 
   describe('Config', () => {
     it('Should produce valid ts code with naming convention', async () => {
-      const config = { namingConvention: 'lower-case#lowerCase' };
+      const config = { namingConvention: 'change-case-all#lowerCase' };
       const ast = [{ location: '', document: basicQuery }];
       const result = await plugin(schema, ast, config);
       const usage = `const myVar: me.__friends = { name: '1' }`;
@@ -711,10 +713,10 @@ describe('Compatibility Plugin', () => {
         `export type Me4UserInlineFragment = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>);`
       );
       expect(result).toContain(
-        `export type Me4Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0];`
+        `export type Me4Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number];`
       );
       expect(result).toContain(
-        `export type Me4_UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0], 'id' | 'name'>);`
+        `export type Me4_UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number], 'id' | 'name'>);`
       );
 
       await validate(result, schema, ast, config);
@@ -731,7 +733,7 @@ describe('Compatibility Plugin', () => {
         withComponent: false,
         noNamespaces: true,
         preResolveTypes: true,
-        namingConvention: { typeNames: 'pascal-case#pascalCase' },
+        namingConvention: { typeNames: 'change-case-all#pascalCase' },
         transformUnderscore: true,
       };
       const ast = [{ location: '', document: basicQuery }];
@@ -749,9 +751,9 @@ describe('Compatibility Plugin', () => {
     });
 
     it('Should produce valid ts code with react-apollo', async () => {
-      const config = {};
+      const config = { withHOC: true, withComponent: true };
       const ast = [{ location: '', document: basicQuery }];
-      const result = await plugin(schema, ast, config, {
+      const result = await plugin(schema, ast, config as any, {
         allPlugins: [
           {
             'typescript-react-apollo': {},
@@ -764,8 +766,8 @@ describe('Compatibility Plugin', () => {
         export type Query = Me4Query;
         export type Me = Me4Query['me'];
         export type UserInlineFragment = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>);
-        export type Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0];
-        export type _UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0], 'id' | 'name'>);
+        export type Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number];
+        export type _UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number], 'id' | 'name'>);
         export const Document = Me4Document;
         export type Props = Me4Props;
         export const HOC = withMe4;
@@ -777,7 +779,7 @@ describe('Compatibility Plugin', () => {
     });
 
     it('Should produce valid ts code with react-apollo and noNamespaces', async () => {
-      const config = { noNamespaces: true, withHooks: true };
+      const config = { noNamespaces: true, withHooks: true, withHOC: true };
       const ast = [{ location: '', document: basicQuery }];
       const result = await plugin(schema, ast, config, {
         allPlugins: [
@@ -793,10 +795,10 @@ describe('Compatibility Plugin', () => {
         `export type Me4UserInlineFragment = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>);`
       );
       expect(result).toContain(
-        `export type Me4Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0];`
+        `export type Me4Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number];`
       );
       expect(result).toContain(
-        `export type Me4_UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0], 'id' | 'name'>);`
+        `export type Me4_UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number], 'id' | 'name'>);`
       );
       expect(result).toContain(`export const Me4HOC = withMe4;`);
       expect(result).toContain(`export const useMe4 = useMe4Query;`);
@@ -808,6 +810,8 @@ describe('Compatibility Plugin', () => {
     it('Should produce valid ts code with react-apollo with hooks', async () => {
       const config = {
         withHooks: true,
+        withComponent: true,
+        withHOC: true,
       };
       const ast = [{ location: '', document: basicQuery }];
       const result = await plugin(schema, ast, config as any, {
@@ -823,8 +827,8 @@ describe('Compatibility Plugin', () => {
         export type Query = Me4Query;
         export type Me = Me4Query['me'];
         export type UserInlineFragment = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>);
-        export type Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0];
-        export type _UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0], 'id' | 'name'>);
+        export type Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number];
+        export type _UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number], 'id' | 'name'>);
         export const Document = Me4Document;
         export type Props = Me4Props;
         export const HOC = withMe4;
@@ -839,6 +843,7 @@ describe('Compatibility Plugin', () => {
     it('Should not refer to Props and HOC type when withHOC = false', async () => {
       const config = {
         withHOC: false,
+        withComponent: true,
       };
       const ast = [{ location: '', document: basicQuery }];
       const result = await plugin(schema, ast, config as any, {
@@ -854,14 +859,268 @@ describe('Compatibility Plugin', () => {
         export type Query = Me4Query;
         export type Me = Me4Query['me'];
         export type UserInlineFragment = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>);
-        export type Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0];
-        export type _UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][0], 'id' | 'name'>);
+        export type Friends = ({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number];
+        export type _UserInlineFragment = ({ __typename: 'User' } & Pick<({ __typename: 'User' } & Pick<Me4Query['me'], 'name' | 'friends'>)['friends'][number], 'id' | 'name'>);
         export const Document = Me4Document;
         export const Component = Me4Component;
       }`);
 
       const raPluginResult = await raPlugin(schema, ast, config, { outputFile: '' });
       await validate(mergeOutputs([raPluginResult, result]), schema, ast, config, true);
+    });
+  });
+
+  describe('multiple named fragments', () => {
+    it('supports query fields', async () => {
+      const query = parse(/* GraphQL */ `
+        query multipleSpreads {
+          me {
+            id
+            ...UserFields
+            ...UserFriends
+          }
+        }
+
+        fragment UserFields on User {
+          id
+          name
+        }
+
+        fragment UserFriends on User {
+          friends {
+            ...UserFields
+          }
+        }
+
+        fragment FullUser on User {
+          id
+          ...UserFields
+          ...UserFriends
+        }
+      `);
+
+      const ast = [{ location: '', document: query }];
+      const result = await plugin(schema, ast, {});
+
+      expect(result).toContain(`export type Me = MultipleSpreadsQuery['me'];`);
+    });
+
+    it('supports named fragments', async () => {
+      const query = parse(/* GraphQL */ `
+        fragment UserFields on User {
+          id
+          name
+        }
+
+        fragment UserFriends on User {
+          friends {
+            id
+          }
+        }
+
+        fragment FullUser on User {
+          id
+          ...UserFields
+          ...UserFriends
+        }
+      `);
+
+      const ast = [{ location: '', document: query }];
+      const result = await plugin(schema, ast, {});
+
+      expect(result).toBeSimilarStringTo(`
+        export namespace FullUser {
+          export type Fragment = FullUserFragment;
+        }
+      `);
+    });
+
+    it('supports inline fragments', async () => {
+      const query = parse(/* GraphQL */ `
+        query multipleSpreads {
+          me {
+            ... on User {
+              id
+              ...UserFields
+              ...UserFriends
+            }
+          }
+        }
+      `);
+
+      const ast = [{ location: '', document: query }];
+      const result = await plugin(schema, ast, {});
+
+      expect(result).toContain(
+        `export type UserInlineFragment = ({ __typename: 'User' } & Pick<MultipleSpreadsQuery['me'], 'id' | keyof UserFieldsFragment | keyof UserFriendsFragment>);`
+      );
+    });
+
+    it('throws on nested inline fragments', async () => {
+      const query = parse(/* GraphQL */ `
+        query multipleSpreads {
+          me {
+            ... on User {
+              ... on User {
+                id
+                ...UserFields
+                ...UserFriends
+              }
+            }
+          }
+        }
+      `);
+
+      const ast = [{ location: '', document: query }];
+      await expect(plugin(schema, ast, {})).rejects.toThrow('Nested inline fragments');
+    });
+
+    it('supports inline fragments on unions and interfaces', async () => {
+      const schema = buildSchema(/* GraphQL */ `
+        interface User {
+          id: ID!
+          name: String
+        }
+        type SocialUser implements User {
+          id: ID!
+          name: String
+          friends: [User!]!
+        }
+        type WorkplaceUser implements User {
+          id: ID!
+          name: String
+          colleagues: [User!]!
+        }
+
+        type Query {
+          me: User!
+        }
+      `);
+
+      const query = parse(/* GraphQL */ `
+        query multipleSpreads {
+          me {
+            id
+            ... on SocialUser {
+              friends {
+                ...UserBasics
+              }
+            }
+            ... on WorkplaceUser {
+              colleagues {
+                ...UserBasics
+              }
+            }
+          }
+        }
+
+        fragment UserBasics on User {
+          id
+          name
+        }
+
+        fragment UserNetwork on User {
+          ... on SocialUser {
+            friends {
+              ...UserBasics
+            }
+          }
+          ... on WorkplaceUser {
+            colleagues {
+              ...UserBasics
+            }
+          }
+        }
+      `);
+
+      const ast = [{ location: '', document: query }];
+      const result = await plugin(schema, ast, {});
+
+      expect(result).toBeSimilarStringTo(`
+        export namespace MultipleSpreads {
+          export type Variables = MultipleSpreadsQueryVariables;
+          export type Query = MultipleSpreadsQuery;
+          export type Me = MultipleSpreadsQuery['me'];
+          export type SocialUserInlineFragment = (DiscriminateUnion<MultipleSpreadsQuery['me'], { __typename?: 'SocialUser' }>);
+          export type Friends = (DiscriminateUnion<MultipleSpreadsQuery['me'], { __typename?: 'SocialUser' }>)['friends'][number];
+          export type WorkplaceUserInlineFragment = (DiscriminateUnion<MultipleSpreadsQuery['me'], { __typename?: 'WorkplaceUser' }>);
+          export type Colleagues = (DiscriminateUnion<MultipleSpreadsQuery['me'], { __typename?: 'WorkplaceUser' }>)['colleagues'][number];
+        }
+      `);
+    });
+
+    it('supports inline fragments on unions and interfaces with nonOptionalTypename:true', async () => {
+      const schema = buildSchema(/* GraphQL */ `
+        interface User {
+          id: ID!
+          name: String
+        }
+        type SocialUser implements User {
+          id: ID!
+          name: String
+          friends: [User!]!
+        }
+        type WorkplaceUser implements User {
+          id: ID!
+          name: String
+          colleagues: [User!]!
+        }
+
+        type Query {
+          me: User!
+        }
+      `);
+
+      const query = parse(/* GraphQL */ `
+        query multipleSpreads {
+          me {
+            id
+            ... on SocialUser {
+              friends {
+                ...UserBasics
+              }
+            }
+            ... on WorkplaceUser {
+              colleagues {
+                ...UserBasics
+              }
+            }
+          }
+        }
+
+        fragment UserBasics on User {
+          id
+          name
+        }
+
+        fragment UserNetwork on User {
+          ... on SocialUser {
+            friends {
+              ...UserBasics
+            }
+          }
+          ... on WorkplaceUser {
+            colleagues {
+              ...UserBasics
+            }
+          }
+        }
+      `);
+
+      const ast = [{ location: '', document: query }];
+      const result = await plugin(schema, ast, { nonOptionalTypename: true });
+
+      expect(result).toBeSimilarStringTo(`
+        export namespace MultipleSpreads {
+          export type Variables = MultipleSpreadsQueryVariables;
+          export type Query = MultipleSpreadsQuery;
+          export type Me = MultipleSpreadsQuery['me'];
+          export type SocialUserInlineFragment = (DiscriminateUnion<MultipleSpreadsQuery['me'], { __typename: 'SocialUser' }>);
+          export type Friends = (DiscriminateUnion<MultipleSpreadsQuery['me'], { __typename: 'SocialUser' }>)['friends'][number];
+          export type WorkplaceUserInlineFragment = (DiscriminateUnion<MultipleSpreadsQuery['me'], { __typename: 'WorkplaceUser' }>);
+          export type Colleagues = (DiscriminateUnion<MultipleSpreadsQuery['me'], { __typename: 'WorkplaceUser' }>)['colleagues'][number];
+        }
+      `);
     });
   });
 });

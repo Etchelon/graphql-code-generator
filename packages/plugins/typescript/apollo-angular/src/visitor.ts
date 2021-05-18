@@ -4,11 +4,12 @@ import {
   DocumentMode,
   LoadedFragment,
   indentMultiline,
+  getConfigValue,
 } from '@graphql-codegen/visitor-plugin-common';
 import autoBind from 'auto-bind';
 import { OperationDefinitionNode, print, visit, GraphQLSchema, Kind } from 'graphql';
 import { ApolloAngularRawPluginConfig } from './config';
-import { camelCase } from 'camel-case';
+import { camelCase } from 'change-case-all';
 import { Types } from '@graphql-codegen/plugin-helpers';
 
 const R_MOD = /module:\s*"([^"]+)"/; // matches: module: "..."
@@ -19,20 +20,25 @@ function R_DEF(directive: string) {
 }
 
 export interface ApolloAngularPluginConfig extends ClientSideBasePluginConfig {
+  apolloAngularVersion: number;
   ngModule?: string;
   namedClient?: string;
   serviceName?: string;
   serviceProvidedInRoot?: boolean;
+  serviceProvidedIn?: string;
   sdkClass?: boolean;
   querySuffix?: string;
   mutationSuffix?: string;
   subscriptionSuffix?: string;
+  apolloAngularPackage: string;
+  additionalDI?: string[];
 }
 
 export class ApolloAngularVisitor extends ClientSideBaseVisitor<
   ApolloAngularRawPluginConfig,
   ApolloAngularPluginConfig
 > {
+  private _externalImportPrefix = '';
   private _operationsToInclude: {
     node: OperationDefinitionNode;
     documentVariableName: string;
@@ -41,6 +47,8 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
     operationVariablesTypes: string;
     serviceName: string;
   }[] = [];
+  private dependencyInjections = '';
+  private dependencyInjectionArgs = '';
 
   constructor(
     schema: GraphQLSchema,
@@ -58,13 +66,45 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
         ngModule: rawConfig.ngModule,
         namedClient: rawConfig.namedClient,
         serviceName: rawConfig.serviceName,
+        serviceProvidedIn: rawConfig.serviceProvidedIn,
         serviceProvidedInRoot: rawConfig.serviceProvidedInRoot,
         querySuffix: rawConfig.querySuffix,
         mutationSuffix: rawConfig.mutationSuffix,
         subscriptionSuffix: rawConfig.subscriptionSuffix,
+        additionalDI: getConfigValue(rawConfig.additionalDI, []),
+        apolloAngularPackage: getConfigValue(rawConfig.apolloAngularPackage, 'apollo-angular'),
+        apolloAngularVersion: getConfigValue(rawConfig.apolloAngularVersion, 2),
+        gqlImport: getConfigValue(
+          rawConfig.gqlImport,
+          !rawConfig.apolloAngularVersion || rawConfig.apolloAngularVersion === 2 ? `apollo-angular#gql` : null
+        ),
       },
       documents
     );
+
+    if (this.config.importOperationTypesFrom) {
+      this._externalImportPrefix = `${this.config.importOperationTypesFrom}.`;
+
+      if (this.config.documentMode !== DocumentMode.external || !this.config.importDocumentNodeExternallyFrom) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '"importOperationTypesFrom" should be used with "documentMode=external" and "importDocumentNodeExternallyFrom"'
+        );
+      }
+
+      if (this.config.importOperationTypesFrom !== 'Operations') {
+        // eslint-disable-next-line no-console
+        console.warn('importOperationTypesFrom only works correctly when left empty or set to "Operations"');
+      }
+    }
+
+    const dependencyInjections = ['apollo: Apollo.Apollo'].concat(this.config.additionalDI);
+    const dependencyInjectionArgs = dependencyInjections.map(content => {
+      return content.split(':')[0];
+    });
+
+    this.dependencyInjections = dependencyInjections.join(', ');
+    this.dependencyInjectionArgs = dependencyInjectionArgs.join(', ');
 
     autoBind(this);
   }
@@ -77,12 +117,16 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
       return baseImports;
     }
 
-    const imports = [`import { Injectable } from '@angular/core';`, `import * as Apollo from 'apollo-angular';`];
+    const imports = [
+      `import { Injectable } from '@angular/core';`,
+      `import * as Apollo from '${this.config.apolloAngularPackage}';`,
+    ];
 
     if (this.config.sdkClass) {
-      imports.push(
+        const corePackage = this.config.apolloAngularVersion > 1 ? '@apollo/client/core' : 'apollo-client';
+        imports.push(
         ...[
-          `import * as ApolloCore from 'apollo-client';`,
+            `import * as ApolloCore from '${corePackage}';`,
           `import { takeWhile } from 'rxjs/operators';`,
           `import { GraphQLService } from '@docebo/hydra/lib/services/graphql.service';`,
         ]
@@ -105,6 +149,15 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
           module: def.module,
         };
       });
+
+    if (this.config.serviceProvidedIn) {
+      const ngModule = this._parseNgModule(this.config.serviceProvidedIn);
+
+      defs[ngModule.link] = {
+        path: ngModule.path,
+        module: ngModule.module,
+      };
+    }
 
     Object.keys(defs).forEach(key => {
       const def = defs[key];
@@ -204,7 +257,9 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
   }
 
   private _getDocumentNodeVariable(node: OperationDefinitionNode, documentVariableName: string): string {
-    return this.config.documentMode === DocumentMode.external ? `Operations.${node.name.value}` : documentVariableName;
+    return this.config.importOperationTypesFrom
+      ? `${this.config.importOperationTypesFrom}.${documentVariableName}`
+      : documentVariableName;
   }
 
   private _operationSuffix(operationType: string): string {
@@ -238,6 +293,9 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
       serviceName,
     });
 
+    operationResultType = this._externalImportPrefix + operationResultType;
+    operationVariablesTypes = this._externalImportPrefix + operationVariablesTypes;
+
     const content = `
   @Injectable({
     providedIn: ${this._providedIn(node)}
@@ -245,6 +303,9 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
   export class ${serviceName} extends Apollo.${operationType}<${operationResultType}, ${operationVariablesTypes}> {
     document = ${this._getDocumentNodeVariable(node, documentVariableName)};
     ${this._namedClient(node)}
+    constructor(${this.dependencyInjections}) {
+      super(${this.dependencyInjectionArgs});
+    }
   }`;
 
     return content;
@@ -264,6 +325,9 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
 
     const allPossibleActions = this._operationsToInclude
       .map(o => {
+        const operationResultType = this._externalImportPrefix + o.operationResultType;
+        const operationVariablesTypes = this._externalImportPrefix + o.operationVariablesTypes;
+
         const optionalVariables =
           !o.node.variableDefinitions ||
           o.node.variableDefinitions.length === 0 ||
@@ -271,8 +335,8 @@ export class ApolloAngularVisitor extends ClientSideBaseVisitor<
 
         const options =
           o.operationType === 'Mutation'
-            ? `${o.operationType}OptionsAlone<${o.operationResultType}, ${o.operationVariablesTypes}>`
-            : `${o.operationType}OptionsAlone<${o.operationVariablesTypes}>`;
+            ? `${o.operationType}OptionsAlone<${operationResultType}, ${operationVariablesTypes}>`
+            : `${o.operationType}OptionsAlone<${operationVariablesTypes}>`;
 
         const method = `
 ${camelCase(o.node.name.value)}(variables${optionalVariables ? '?' : ''}: ${
@@ -297,7 +361,11 @@ ${camelCase(o.node.name.value)}(variables${optionalVariables ? '?' : ''}: ${
       .join(',\n');
 
     const serviceName = this.config.serviceName || 'ApolloAngularSDK';
-    const providedIn = this.config.serviceProvidedInRoot === false ? '' : `{ providedIn: 'root' }`;
+    const providedIn = this.config.serviceProvidedIn
+      ? `{ providedIn: ${this._parseNgModule(this.config.serviceProvidedIn).module} }`
+      : this.config.serviceProvidedInRoot === false
+      ? ''
+      : `{ providedIn: 'root' }`;
 
     return `
   type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;

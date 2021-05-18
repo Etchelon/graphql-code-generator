@@ -1,19 +1,26 @@
-import { ParsedConfig, RawConfig, BaseVisitor } from './base-visitor';
+import { ParsedConfig, RawConfig, BaseVisitor, BaseVisitorConvertOptions } from './base-visitor';
 import autoBind from 'auto-bind';
 import { DEFAULT_SCALARS } from './scalars';
-import { NormalizedScalarsMap, EnumValuesMap, ParsedEnumValuesMap } from './types';
+import {
+  NormalizedScalarsMap,
+  EnumValuesMap,
+  ParsedEnumValuesMap,
+  DeclarationKind,
+  ConvertOptions,
+  AvoidOptionalsConfig,
+} from './types';
 import {
   DeclarationBlock,
   DeclarationBlockConfig,
   indent,
   getBaseTypeNode,
-  buildScalars,
   getConfigValue,
   getRootTypeNames,
   stripMapperTypeInterpolation,
   OMIT_TYPE,
   REQUIRE_FIELDS_TYPE,
   wrapTypeWithModifiers,
+  buildScalarsFromConfig,
 } from './utils';
 import {
   NameNode,
@@ -35,10 +42,12 @@ import {
   DirectiveDefinitionNode,
   GraphQLObjectType,
   InputValueDefinitionNode,
+  EnumTypeDefinitionNode,
+  ASTNode,
 } from 'graphql';
 
 import { OperationVariablesToObject } from './variables-to-object';
-import { ParsedMapper, parseMapper, transformMappers, ExternalParsedMapper } from './mappers';
+import { ParsedMapper, parseMapper, transformMappers, ExternalParsedMapper, buildMapperImport } from './mappers';
 import { parseEnumValues } from './enum-values';
 import { ApolloFederation, getBaseType } from '@graphql-codegen/plugin-helpers';
 
@@ -50,7 +59,7 @@ export interface ParsedResolversConfig extends ParsedConfig {
     [typeName: string]: ParsedMapper;
   };
   defaultMapper: ParsedMapper | null;
-  avoidOptionals: boolean;
+  avoidOptionals: AvoidOptionalsConfig;
   addUnderscoreToArgsType: boolean;
   enumValues: ParsedEnumValuesMap;
   resolverTypeWrapperSignature: string;
@@ -58,15 +67,18 @@ export interface ParsedResolversConfig extends ParsedConfig {
   enumPrefix: boolean;
   optionalResolveType: boolean;
   immutableTypes: boolean;
+  namespacedImportName: string;
+  resolverTypeSuffix: string;
+  allResolversTypeName: string;
+  internalResolversPrefix: string;
+  onlyResolveTypeForInterfaces: boolean;
 }
 
 export interface RawResolversConfig extends RawConfig {
   /**
-   * @name addUnderscoreToArgsType
-   * @type boolean
    * @description Adds `_` to generated `Args` types in order to avoid duplicate identifiers.
    *
-   * @example With Custom Values
+   * @exampleMarkdown
    * ```yml
    *   config:
    *     addUnderscoreToArgsType: true
@@ -75,20 +87,20 @@ export interface RawResolversConfig extends RawConfig {
    */
   addUnderscoreToArgsType?: boolean;
   /**
-   * @name contextType
-   * @type string
    * @description Use this configuration to set a custom type for your `context`, and it will
    * effect all the resolvers, without the need to override it using generics each time.
    * If you wish to use an external type and import it from another file, you can use `add` plugin
    * and add the required `import` statement, or you can use a `module#type` syntax.
    *
-   * @example Custom Context Type
+   * @exampleMarkdown
+   * ## Custom Context Type
    * ```yml
    * plugins
    *   config:
    *     contextType: MyContext
    * ```
-   * @example Custom Context Type
+   *
+   * ## Custom Context Type
    * ```yml
    * plugins
    *   config:
@@ -97,13 +109,12 @@ export interface RawResolversConfig extends RawConfig {
    */
   contextType?: string;
   /**
-   * @name fieldContextTypes
-   * @type string array
    * @description Use this to set a custom type for a specific field `context`.
    * It will only affect the targeted resolvers.
    * You can either use `Field.Path#ContextTypeName` or `Field.Path#ExternalFileName#ContextTypeName`
    *
-   * @example Custom Field Context Types
+   * @exampleMarkdown
+   * ## Custom Field Context Types
    * ```
    * plugins
    *   config:
@@ -115,20 +126,19 @@ export interface RawResolversConfig extends RawConfig {
    */
   fieldContextTypes?: Array<string>;
   /**
-   * @name rootValueType
-   * @type string
    * @description Use this configuration to set a custom type for the `rootValue`, and it will
    * effect resolvers of all root types (Query, Mutation and Subscription), without the need to override it using generics each time.
    * If you wish to use an external type and import it from another file, you can use `add` plugin
    * and add the required `import` statement, or you can use both `module#type` or `module#namespace#type` syntax.
    *
-   * @example Custom RootValue Type
+   * @exampleMarkdown
+   * ## Custom RootValue Type
    * ```yml
    * plugins
    *   config:
    *     rootValueType: MyRootValue
    * ```
-   * @example Custom RootValue Type
+   * ## Custom RootValue Type
    * ```yml
    * plugins
    *   config:
@@ -137,10 +147,9 @@ export interface RawResolversConfig extends RawConfig {
    */
   rootValueType?: string;
   /**
-   * @name mapperTypeSuffix
-   * @type string
    * @description Adds a suffix to the imported names to prevent name clashes.
    *
+   * @exampleMarkdown
    * ```yml
    * plugins
    *   config:
@@ -149,13 +158,12 @@ export interface RawResolversConfig extends RawConfig {
    */
   mapperTypeSuffix?: string;
   /**
-   * @name mappers
-   * @type Object
    * @description Replaces a GraphQL type usage with a custom type, allowing you to return custom object from
    * your resolvers.
    * You can use both `module#type` and `module#namespace#type` syntax.
    *
-   * @example Custom Context Type
+   * @exampleMarkdown
+   * ## Custom Context Type
    * ```yml
    * plugins
    *   config:
@@ -166,55 +174,53 @@ export interface RawResolversConfig extends RawConfig {
    */
   mappers?: { [typeName: string]: string };
   /**
-   * @name defaultMapper
-   * @type string
    * @description Allow you to set the default mapper when it's not being override by `mappers` or generics.
    * You can specify a type name, or specify a string in `module#type` or `module#namespace#type` format.
-   * The defualt value of mappers it the TypeScript type generated by `typescript` package.
+   * The default value of mappers it the TypeScript type generated by `typescript` package.
    *
-   * @example Replace with any
+   * @exampleMarkdown
+   * ## Replace with any
    * ```yml
    * plugins
    *   config:
    *     defaultMapper: any
    * ```
    *
-   * @example Custom Base Object
+   * ## Custom Base Object
    * ```yml
    * plugins
    *   config:
    *     defaultMapper: ./my-file#BaseObject
    * ```
    *
-   * @example Wrap default types with Partial
-   * You can also specify a custom wrapper for the original type, without overring the original generated types, use "{T}" to specify the identifier. (for flow, use `$Shape<{T}>`)
+   * ## Wrap default types with Partial
+   * You can also specify a custom wrapper for the original type, without overriding the original generated types, use "{T}" to specify the identifier. (for flow, use `$Shape<{T}>`)
    * ```yml
    * plugins
    *   config:
    *     defaultMapper: Partial<{T}>
    * ```
    *
-   * @example Allow deep partial with `utility-types`
+   * ## Allow deep partial with `utility-types`
    * ```yml
    * plugins
    *  plugins:
    *    - "typescript"
    *    - "typescript-resolvers"
-   *    - add: "import { DeepPartial } from 'utility-types';"
+   *    - add:
+   *        content: "import { DeepPartial } from 'utility-types';"
    *  config:
    *    defaultMapper: DeepPartial<{T}>
    * ```
    */
   defaultMapper?: string;
   /**
-   * @name avoidOptionals
-   * @type boolean
-   * @description This will cause the generator to avoid using TypeScript optionals (`?`),
+   * @description This will cause the generator to avoid using optionals (`?`),
    * so all field resolvers must be implemented in order to avoid compilation errors.
-   *
    * @default false
    *
-   * @example
+   * @exampleMarkdown
+   * ## Override all definition types
    * ```yml
    * generates:
    * path/to/file.ts:
@@ -224,15 +230,27 @@ export interface RawResolversConfig extends RawConfig {
    *  config:
    *    avoidOptionals: true
    * ```
+   *
+   * ## Override only specific definition types
+   * ```yml
+   * generates:
+   * path/to/file.ts:
+   *  plugins:
+   *    - typescript
+   *  config:
+   *    avoidOptionals:
+   *      field: true
+   *      inputValue: true
+   *      object: true
+   *      defaultValue: true
+   * ```
    */
-  avoidOptionals?: boolean;
+  avoidOptionals?: boolean | AvoidOptionalsConfig;
   /**
-   * @name showUnusedMappers
-   * @type boolean
    * @description Warns about unused mappers.
    * @default true
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    * generates:
    * path/to/file.ts:
@@ -245,37 +263,27 @@ export interface RawResolversConfig extends RawConfig {
    */
   showUnusedMappers?: boolean;
   /**
-   * @name enumValues
-   * @type EnumValuesMap
    * @description Overrides the default value of enum values declared in your GraphQL schema, supported
-   * in this plugin because of the need for integeration with `typescript` package.
+   * in this plugin because of the need for integration with `typescript` package.
    * See documentation under `typescript` plugin for more information and examples.
-   *
    */
   enumValues?: EnumValuesMap;
   /**
-   * @name resolverTypeWrapperSignature
-   * @type string
    * @default Promise<T> | T
    * @description Allow you to override `resolverTypeWrapper` definition.
-   *
    */
   resolverTypeWrapperSignature?: string;
   /**
-   * @name federation
-   * @type boolean
    * @default false
    * @description Supports Apollo Federation
-   *
    */
   federation?: boolean;
   /**
-   * @name enumPrefix
-   * @type boolean
    * @default true
    * @description Allow you to disable prefixing for generated enums, works in combination with `typesPrefix`.
    *
-   * @example Disable enum prefixes
+   * @exampleMarkdown
+   * ## Disable enum prefixes
    * ```yml
    *   config:
    *     typesPrefix: I
@@ -284,19 +292,44 @@ export interface RawResolversConfig extends RawConfig {
    */
   enumPrefix?: boolean;
   /**
-   * @name optionalResolveType
-   * @type boolean
    * @default false
    * @description Sets the `__resolveType` field as optional field.
    */
   optionalResolveType?: boolean;
   /**
-   * @name immutableTypes
-   * @type boolean
    * @default false
    * @description Generates immutable types by adding `readonly` to properties and uses `ReadonlyArray`.
    */
   immutableTypes?: boolean;
+  /**
+   * @default ''
+   * @description Prefixes all GraphQL related generated types with that value, as namespaces import.
+   * You can use this featuere to allow seperation of plugins to different files.
+   */
+  namespacedImportName?: string;
+  /**
+   * @default Resolvers
+   * @description Suffix we add to each generated type resolver.
+   */
+  resolverTypeSuffix?: string;
+  /**
+   * @default Resolvers
+   * @description The type name to use when exporting all resolvers signature as unified type.
+   */
+  allResolversTypeName?: string;
+  /**
+   * @type string
+   * @default '__'
+   * @description Defines the prefix value used for `__resolveType` and and `__isTypeOf` resolvers.
+   * If you are using `mercurius-js`, please set this field to empty string for better compatiblity.
+   */
+  internalResolversPrefix?: string;
+  /**
+   * @type boolean
+   * @default false
+   * @description Turning this flag to `true` will generate resolver siganture that has only `resolveType` for interfaces, forcing developers to write inherited type resolvers in the type itself.
+   */
+  onlyResolveTypeForInterfaces?: boolean;
 }
 
 export type ResolverTypes = { [gqlType: string]: string };
@@ -335,24 +368,36 @@ export class BaseResolversVisitor<
       enumPrefix: getConfigValue(rawConfig.enumPrefix, true),
       federation: getConfigValue(rawConfig.federation, false),
       resolverTypeWrapperSignature: getConfigValue(rawConfig.resolverTypeWrapperSignature, 'Promise<T> | T'),
-      enumValues: parseEnumValues(_schema, rawConfig.enumValues),
+      enumValues: parseEnumValues({
+        schema: _schema,
+        mapOrStr: rawConfig.enumValues,
+      }),
       addUnderscoreToArgsType: getConfigValue(rawConfig.addUnderscoreToArgsType, false),
+      onlyResolveTypeForInterfaces: getConfigValue(rawConfig.onlyResolveTypeForInterfaces, false),
       contextType: parseMapper(rawConfig.contextType || 'any', 'ContextType'),
       fieldContextTypes: getConfigValue(rawConfig.fieldContextTypes, []),
+      resolverTypeSuffix: getConfigValue(rawConfig.resolverTypeSuffix, 'Resolvers'),
+      allResolversTypeName: getConfigValue(rawConfig.allResolversTypeName, 'Resolvers'),
       rootValueType: parseMapper(rawConfig.rootValueType || '{}', 'RootValueType'),
+      namespacedImportName: getConfigValue(rawConfig.namespacedImportName, ''),
       avoidOptionals: getConfigValue(rawConfig.avoidOptionals, false),
       defaultMapper: rawConfig.defaultMapper
         ? parseMapper(rawConfig.defaultMapper || 'any', 'DefaultMapperType')
         : null,
       mappers: transformMappers(rawConfig.mappers || {}, rawConfig.mapperTypeSuffix),
-      scalars: buildScalars(_schema, rawConfig.scalars, defaultScalars),
+      scalars: buildScalarsFromConfig(_schema, rawConfig, defaultScalars),
+      internalResolversPrefix: getConfigValue(rawConfig.internalResolversPrefix, '__'),
       ...(additionalConfig || {}),
     } as TPluginConfig);
 
     autoBind(this);
     this._federation = new ApolloFederation({ enabled: this.config.federation, schema: this.schema });
     this._rootTypeNames = getRootTypeNames(_schema);
-    this._variablesTransfomer = new OperationVariablesToObject(this.scalars, this.convertName);
+    this._variablesTransfomer = new OperationVariablesToObject(
+      this.scalars,
+      this.convertName,
+      this.config.namespacedImportName
+    );
     this._resolversTypes = this.createResolversFields(
       type => this.applyResolverTypeWrapper(type),
       type => this.clearResolverTypeWrapper(type),
@@ -361,7 +406,8 @@ export class BaseResolversVisitor<
     this._resolversParentTypes = this.createResolversFields(
       type => type,
       type => type,
-      name => this.getParentTypeToUse(name)
+      name => this.getParentTypeToUse(name),
+      namedType => !isEnumType(namedType)
     );
     this._fieldContextTypeMap = this.createFieldContextTypeMap();
   }
@@ -419,11 +465,24 @@ export class BaseResolversVisitor<
     return false;
   }
 
+  public convertName(
+    node: ASTNode | string,
+    options?: BaseVisitorConvertOptions & ConvertOptions,
+    applyNamespacedImport = false
+  ): string {
+    const sourceType = super.convertName(node, options);
+
+    return `${
+      applyNamespacedImport && this.config.namespacedImportName ? this.config.namespacedImportName + '.' : ''
+    }${sourceType}`;
+  }
+
   // Kamil: this one is heeeeavvyyyy
   protected createResolversFields(
     applyWrapper: (str: string) => string,
     clearWrapper: (str: string) => string,
-    getTypeToUse: (str: string) => string
+    getTypeToUse: (str: string) => string,
+    shouldInclude?: (type: GraphQLNamedType) => boolean
   ): ResolverTypes {
     const allSchemaTypes = this._schema.getTypeMap();
     const nestedMapping: { [typeName: string]: boolean } = {};
@@ -435,22 +494,25 @@ export class BaseResolversVisitor<
     });
 
     return typeNames.reduce((prev: ResolverTypes, typeName: string) => {
-      if (typeName.startsWith('__')) {
+      const schemaType = allSchemaTypes[typeName];
+
+      if (typeName.startsWith('__') || (shouldInclude && !shouldInclude(schemaType))) {
         return prev;
       }
 
       let shouldApplyOmit = false;
       const isRootType = this._rootTypeNames.includes(typeName);
-
       const isMapped = this.config.mappers[typeName];
       const isScalar = this.config.scalars[typeName];
       const hasDefaultMapper = !!(this.config.defaultMapper && this.config.defaultMapper.type);
-      const schemaType = allSchemaTypes[typeName];
 
       if (isRootType) {
         prev[typeName] = applyWrapper(this.config.rootValueType.type);
 
         return prev;
+      } else if (isMapped && this.config.mappers[typeName].type) {
+        this.markMapperAsUsed(typeName);
+        prev[typeName] = applyWrapper(this.config.mappers[typeName].type);
       } else if (isInterfaceType(schemaType)) {
         const allTypesMap = this._schema.getTypeMap();
         const implementingTypes: string[] = [];
@@ -470,10 +532,9 @@ export class BaseResolversVisitor<
         prev[typeName] = possibleTypes;
         return prev;
       } else if (isEnumType(schemaType) && this.config.enumValues[typeName]) {
-        prev[typeName] = this.config.enumValues[typeName].typeIdentifier;
-      } else if (isMapped && this.config.mappers[typeName].type) {
-        this.markMapperAsUsed(typeName);
-        prev[typeName] = applyWrapper(this.config.mappers[typeName].type);
+        prev[typeName] =
+          this.config.enumValues[typeName].sourceIdentifier ||
+          this.convertName(this.config.enumValues[typeName].typeIdentifier);
       } else if (hasDefaultMapper && !hasPlaceholder(this.config.defaultMapper.type)) {
         prev[typeName] = applyWrapper(this.config.defaultMapper.type);
       } else if (isScalar) {
@@ -485,7 +546,7 @@ export class BaseResolversVisitor<
           .join(' | ');
       } else {
         shouldApplyOmit = true;
-        prev[typeName] = this.convertName(typeName, { useTypesPrefix: this.config.enumPrefix });
+        prev[typeName] = this.convertName(typeName, { useTypesPrefix: this.config.enumPrefix }, true);
       }
 
       if (shouldApplyOmit && prev[typeName] !== 'any' && isObjectType(schemaType)) {
@@ -559,7 +620,8 @@ export class BaseResolversVisitor<
   }
 
   protected applyMaybe(str: string): string {
-    return `Maybe<${str}>`;
+    const namespacedImportPrefix = this.config.namespacedImportName ? this.config.namespacedImportName + '.' : '';
+    return `${namespacedImportPrefix}Maybe<${str}>`;
   }
 
   protected applyResolverTypeWrapper(str: string): string {
@@ -567,8 +629,10 @@ export class BaseResolversVisitor<
   }
 
   protected clearMaybe(str: string): string {
-    if (str.startsWith('Maybe<')) {
-      return str.replace(/Maybe<(.*?)>$/, '$1');
+    const namespacedImportPrefix = this.config.namespacedImportName ? this.config.namespacedImportName + '.' : '';
+    if (str.startsWith(`${namespacedImportPrefix}Maybe<`)) {
+      const maybeRe = new RegExp(`${namespacedImportPrefix.replace('.', '\\.')}Maybe<(.*?)>$`);
+      return str.replace(maybeRe, '$1');
     }
 
     return str;
@@ -603,27 +667,33 @@ export class BaseResolversVisitor<
   }
 
   public buildResolversTypes(): string {
+    const declarationKind = 'type';
     return new DeclarationBlock(this._declarationBlockConfig)
       .export()
-      .asKind('type')
+      .asKind(declarationKind)
       .withName(this.convertName('ResolversTypes'))
       .withComment('Mapping between all available schema types and the resolvers types')
       .withBlock(
         Object.keys(this._resolversTypes)
-          .map(typeName => indent(`${typeName}: ${this._resolversTypes[typeName]},`))
+          .map(typeName =>
+            indent(`${typeName}: ${this._resolversTypes[typeName]}${this.getPunctuation(declarationKind)}`)
+          )
           .join('\n')
       ).string;
   }
 
   public buildResolversParentTypes(): string {
+    const declarationKind = 'type';
     return new DeclarationBlock(this._declarationBlockConfig)
       .export()
-      .asKind('type')
+      .asKind(declarationKind)
       .withName(this.convertName('ResolversParentTypes'))
       .withComment('Mapping between all available schema types and the resolvers parents')
       .withBlock(
         Object.keys(this._resolversParentTypes)
-          .map(typeName => indent(`${typeName}: ${this._resolversParentTypes[typeName]},`))
+          .map(typeName =>
+            indent(`${typeName}: ${this._resolversParentTypes[typeName]}${this.getPunctuation(declarationKind)}`)
+          )
           .join('\n')
       ).string;
   }
@@ -695,25 +765,8 @@ export class BaseResolversVisitor<
     });
 
     return Object.keys(groupedMappers)
-      .map(source => this.buildMapperImport(source, groupedMappers[source]))
+      .map(source => buildMapperImport(source, groupedMappers[source], this.config.useTypeImports))
       .filter(Boolean);
-  }
-
-  protected buildMapperImport(source: string, types: { identifier: string; asDefault?: boolean }[]): string | null {
-    if (!types || types.length === 0) {
-      return null;
-    }
-
-    const defaultType = types.find(t => t.asDefault === true);
-    const namedTypes = types.filter(t => !t.asDefault);
-
-    // { Foo, Bar as BarModel }
-    const namedImports = namedTypes.length ? `{ ${namedTypes.map(t => t.identifier).join(', ')} }` : '';
-    // Baz
-    const defaultImport = defaultType ? defaultType.identifier : '';
-
-    // Baz, { Foo, Bar as BarModel }
-    return `import ${[defaultImport, namedImports].filter(Boolean).join(', ')} from '${source}';`;
   }
 
   setDeclarationBlockConfig(config: DeclarationBlockConfig): void {
@@ -733,7 +786,8 @@ export class BaseResolversVisitor<
   }
 
   public getRootResolver(): string {
-    const name = this.convertName('Resolvers');
+    const name = this.convertName(this.config.allResolversTypeName);
+    const declarationKind = 'type';
     const contextType = `<ContextType = ${this.config.contextType.type}>`;
 
     // This is here because we don't want to break IResolvers, so there is a mapping by default,
@@ -743,21 +797,21 @@ export class BaseResolversVisitor<
 /**
  * @deprecated
  * Use "Resolvers" root object instead. If you wish to get "IResolvers", add "typesPrefix: I" to your config.
-*/
+ */
 export type IResolvers${contextType} = ${name}<ContextType>;`
       : '';
 
     return [
       new DeclarationBlock(this._declarationBlockConfig)
         .export()
-        .asKind('type')
+        .asKind(declarationKind)
         .withName(name, contextType)
         .withBlock(
           Object.keys(this._collectedResolvers)
             .map(schemaTypeName => {
               const resolverType = this._collectedResolvers[schemaTypeName];
 
-              return indent(this.formatRootResolver(schemaTypeName, resolverType));
+              return indent(this.formatRootResolver(schemaTypeName, resolverType, declarationKind));
             })
             .join('\n')
         ).string,
@@ -765,12 +819,15 @@ export type IResolvers${contextType} = ${name}<ContextType>;`
     ].join('\n');
   }
 
-  protected formatRootResolver(schemaTypeName: string, resolverType: string): string {
-    return `${schemaTypeName}${this.config.avoidOptionals ? '' : '?'}: ${resolverType},`;
+  protected formatRootResolver(schemaTypeName: string, resolverType: string, declarationKind: DeclarationKind): string {
+    return `${schemaTypeName}${this.config.avoidOptionals ? '' : '?'}: ${resolverType}${this.getPunctuation(
+      declarationKind
+    )}`;
   }
 
   public getAllDirectiveResolvers(): string {
     if (Object.keys(this._collectedDirectiveResolvers).length) {
+      const declarationKind = 'type';
       const name = this.convertName('DirectiveResolvers');
       const contextType = `<ContextType = ${this.config.contextType.type}>`;
 
@@ -779,23 +836,23 @@ export type IResolvers${contextType} = ${name}<ContextType>;`
       const deprecatedIResolvers = !this.config.typesPrefix
         ? `
 /**
-* @deprecated
-* Use "DirectiveResolvers" root object instead. If you wish to get "IDirectiveResolvers", add "typesPrefix: I" to your config.
-*/
+ * @deprecated
+ * Use "DirectiveResolvers" root object instead. If you wish to get "IDirectiveResolvers", add "typesPrefix: I" to your config.
+ */
 export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
         : '';
 
       return [
         new DeclarationBlock(this._declarationBlockConfig)
           .export()
-          .asKind('type')
+          .asKind(declarationKind)
           .withName(name, contextType)
           .withBlock(
             Object.keys(this._collectedDirectiveResolvers)
               .map(schemaTypeName => {
                 const resolverType = this._collectedDirectiveResolvers[schemaTypeName];
 
-                return indent(this.formatRootResolver(schemaTypeName, resolverType));
+                return indent(this.formatRootResolver(schemaTypeName, resolverType, declarationKind));
               })
               .join('\n')
           ).string,
@@ -817,7 +874,7 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
   }
 
   protected _getScalar(name: string): string {
-    return `Scalars['${name}']`;
+    return `${this.config.namespacedImportName ? this.config.namespacedImportName + '.' : ''}Scalars['${name}']`;
   }
 
   NamedType(node: NamedTypeNode): string {
@@ -827,7 +884,7 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
       return this._getScalar(nameStr);
     }
 
-    return this.convertName(node);
+    return this.convertName(node, null, true);
   }
 
   NonNullType(node: NonNullTypeNode): string {
@@ -852,7 +909,7 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
     return `${resolversType}['${name}']`;
   }
 
-  protected getParentTypeForSignature(node: FieldDefinitionNode) {
+  protected getParentTypeForSignature(_node: FieldDefinitionNode): string {
     return 'ParentType';
   }
 
@@ -860,8 +917,9 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
     return `ParentType extends ${parentType} = ${parentType}`;
   }
 
-  FieldDefinition(node: FieldDefinitionNode, key: string | number, parent: any) {
+  FieldDefinition(node: FieldDefinitionNode, key: string | number, parent: any): (parentName: string) => string | null {
     const hasArguments = node.arguments && node.arguments.length > 0;
+    const declarationKind = 'type';
 
     return (parentName: string) => {
       const original: FieldDefinitionNode = parent[key];
@@ -877,17 +935,21 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
       const mappedType = this._variablesTransfomer.wrapAstTypeWithModifiers(typeToUse, original.type);
       const subscriptionType = this._schema.getSubscriptionType();
       const isSubscriptionType = subscriptionType && subscriptionType.name === parentName;
+
       let argsType = hasArguments
-        ? `${
-            this.convertName(parentName, {
+        ? this.convertName(
+            parentName +
+              (this.config.addUnderscoreToArgsType ? '_' : '') +
+              this.convertName(node.name, {
+                useTypesPrefix: false,
+                useTypesSuffix: false,
+              }) +
+              'Args',
+            {
               useTypesPrefix: true,
-            }) +
-            (this.config.addUnderscoreToArgsType ? '_' : '') +
-            this.convertName(node.name, {
-              useTypesPrefix: false,
-            }) +
-            'Args'
-          }`
+            },
+            true
+          )
         : null;
 
       if (argsType !== null) {
@@ -937,7 +999,11 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
         }
       }
 
-      return indent(`${signature.name}${signature.modifier}: ${signature.type}<${signature.genericTypes.join(', ')}>,`);
+      return indent(
+        `${signature.name}${signature.modifier}: ${signature.type}<${signature.genericTypes.join(
+          ', '
+        )}>${this.getPunctuation(declarationKind)}`
+      );
     };
   }
 
@@ -946,14 +1012,15 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
     return `RequireFields<${argsType}, ${fields.map(f => `'${f.name.value}'`).join(' | ')}>`;
   }
 
-  protected applyOptionalFields(argsType: string, fields: readonly InputValueDefinitionNode[]): string {
+  protected applyOptionalFields(argsType: string, _fields: readonly InputValueDefinitionNode[]): string {
     this._globalDeclarations.add(REQUIRE_FIELDS_TYPE);
     return `RequireFields<${argsType}, never>`;
   }
 
-  ObjectTypeDefinition(node: ObjectTypeDefinitionNode) {
+  ObjectTypeDefinition(node: ObjectTypeDefinitionNode): string {
+    const declarationKind = 'type';
     const name = this.convertName(node, {
-      suffix: 'Resolvers',
+      suffix: this.config.resolverTypeSuffix,
     });
     const typeName = (node.name as any) as string;
     const parentType = this.getParentTypeToUse(typeName);
@@ -966,12 +1033,18 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
     const fieldsContent = node.fields.map((f: any) => f(node.name));
 
     if (!isRootType) {
-      fieldsContent.push(indent(`__isTypeOf?: isTypeOfResolverFn<ParentType>,`));
+      fieldsContent.push(
+        indent(
+          `${
+            this.config.internalResolversPrefix
+          }isTypeOf?: IsTypeOfResolverFn<ParentType, ContextType>${this.getPunctuation(declarationKind)}`
+        )
+      );
     }
 
     const block = new DeclarationBlock(this._declarationBlockConfig)
       .export()
-      .asKind('type')
+      .asKind(declarationKind)
       .withName(name, `<ContextType = ${this.config.contextType.type}, ${this.transformParentGenericType(parentType)}>`)
       .withBlock(fieldsContent.join('\n'));
 
@@ -981,8 +1054,9 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
   }
 
   UnionTypeDefinition(node: UnionTypeDefinitionNode, key: string | number, parent: any): string {
+    const declarationKind = 'type';
     const name = this.convertName(node, {
-      suffix: 'Resolvers',
+      suffix: this.config.resolverTypeSuffix,
     });
     const originalNode = parent[key] as UnionTypeDefinitionNode;
     const possibleTypes = originalNode.types
@@ -990,18 +1064,18 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
       .map(f => `'${f}'`)
       .join(' | ');
 
-    this._collectedResolvers[node.name as any] = name;
+    this._collectedResolvers[node.name as any] = name + '<ContextType>';
     const parentType = this.getParentTypeToUse((node.name as any) as string);
 
     return new DeclarationBlock(this._declarationBlockConfig)
       .export()
-      .asKind('type')
+      .asKind(declarationKind)
       .withName(name, `<ContextType = ${this.config.contextType.type}, ${this.transformParentGenericType(parentType)}>`)
       .withBlock(
         indent(
-          `__resolveType${
+          `${this.config.internalResolversPrefix}resolveType${
             this.config.optionalResolveType ? '?' : ''
-          }: TypeResolveFn<${possibleTypes}, ParentType, ContextType>`
+          }: TypeResolveFn<${possibleTypes}, ParentType, ContextType>${this.getPunctuation(declarationKind)}`
         )
       ).string;
   }
@@ -1031,10 +1105,10 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
         }),
         ` extends GraphQLScalarTypeConfig<${baseName}, any>`
       )
-      .withBlock(indent(`name: '${node.name}'`)).string;
+      .withBlock(indent(`name: '${node.name}'${this.getPunctuation('interface')}`)).string;
   }
 
-  DirectiveDefinition(node: DirectiveDefinitionNode, key, parent): string {
+  DirectiveDefinition(node: DirectiveDefinitionNode, key: string | number, parent: any): string {
     if (this._federation.skipDirective(node.name as any)) {
       return null;
     }
@@ -1082,14 +1156,52 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
     ].join('\n');
   }
 
+  protected buildEnumResolverContentBlock(_node: EnumTypeDefinitionNode, _mappedEnumType: string): string {
+    throw new Error(`buildEnumResolverContentBlock is not implemented!`);
+  }
+
+  protected buildEnumResolversExplicitMappedValues(
+    _node: EnumTypeDefinitionNode,
+    _valuesMapping: { [valueName: string]: string | number }
+  ): string {
+    throw new Error(`buildEnumResolversExplicitMappedValues is not implemented!`);
+  }
+
+  EnumTypeDefinition(node: EnumTypeDefinitionNode): string {
+    const rawTypeName = node.name as any;
+
+    // If we have enumValues set, and it's point to an external enum - we need to allow internal values resolvers
+    // In case we have enumValues set but as explicit values, no need to to do mapping since it's already
+    // have type validation (the original enum has been modified by base types plugin).
+    // If we have mapper for that type - we can skip
+    if (!this.config.mappers[rawTypeName] && !this.config.enumValues[rawTypeName]) {
+      return null;
+    }
+
+    const name = this.convertName(node, { suffix: this.config.resolverTypeSuffix });
+    this._collectedResolvers[rawTypeName] = name;
+    const hasExplicitValues = this.config.enumValues[rawTypeName] && this.config.enumValues[rawTypeName].mappedValues;
+
+    return new DeclarationBlock(this._declarationBlockConfig)
+      .export()
+      .asKind('type')
+      .withName(name)
+      .withContent(
+        hasExplicitValues
+          ? this.buildEnumResolversExplicitMappedValues(node, this.config.enumValues[rawTypeName].mappedValues)
+          : this.buildEnumResolverContentBlock(node, this.getTypeToUse(rawTypeName))
+      ).string;
+  }
+
   InterfaceTypeDefinition(node: InterfaceTypeDefinitionNode): string {
     const name = this.convertName(node, {
-      suffix: 'Resolvers',
+      suffix: this.config.resolverTypeSuffix,
     });
+    const declarationKind = 'type';
     const allTypesMap = this._schema.getTypeMap();
     const implementingTypes: string[] = [];
 
-    this._collectedResolvers[node.name as any] = name;
+    this._collectedResolvers[node.name as any] = name + '<ContextType>';
 
     for (const graphqlType of Object.values(allTypesMap)) {
       if (graphqlType instanceof GraphQLObjectType) {
@@ -1101,21 +1213,21 @@ export type IDirectiveResolvers${contextType} = ${name}<ContextType>;`
     }
 
     const parentType = this.getParentTypeToUse((node.name as any) as string);
-
     const possibleTypes = implementingTypes.map(name => `'${name}'`).join(' | ') || 'null';
+    const fields = this.config.onlyResolveTypeForInterfaces ? [] : node.fields || [];
 
     return new DeclarationBlock(this._declarationBlockConfig)
       .export()
-      .asKind('type')
+      .asKind(declarationKind)
       .withName(name, `<ContextType = ${this.config.contextType.type}, ${this.transformParentGenericType(parentType)}>`)
       .withBlock(
         [
           indent(
-            `__resolveType${
+            `${this.config.internalResolversPrefix}resolveType${
               this.config.optionalResolveType ? '?' : ''
-            }: TypeResolveFn<${possibleTypes}, ParentType, ContextType>,`
+            }: TypeResolveFn<${possibleTypes}, ParentType, ContextType>${this.getPunctuation(declarationKind)}`
           ),
-          ...(node.fields || []).map((f: any) => f(node.name)),
+          ...fields.map((f: any) => f(node.name)),
         ].join('\n')
       ).string;
   }

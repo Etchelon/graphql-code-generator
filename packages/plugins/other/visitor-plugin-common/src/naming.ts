@@ -1,7 +1,7 @@
 import { ASTNode } from 'graphql';
 import { resolveExternalModuleAndFn } from '@graphql-codegen/plugin-helpers';
 import { NamingConventionMap, NamingConvention, ConvertFn, ConvertOptions } from './types';
-import { pascalCase } from 'pascal-case';
+import { pascalCase } from 'change-case-all';
 import { convertNameParts, getConfigValue } from './utils';
 
 function getKind(node: ASTNode | string): keyof NamingConventionMap {
@@ -17,6 +17,10 @@ function getKind(node: ASTNode | string): keyof NamingConventionMap {
 }
 
 function getName(node: ASTNode | string): string | undefined {
+  if (node == null) {
+    return undefined;
+  }
+
   if (typeof node === 'string') {
     return node;
   }

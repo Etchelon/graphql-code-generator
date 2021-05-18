@@ -10,7 +10,7 @@ import { join } from 'path';
 import { FSWatcher } from 'chokidar';
 import { lifecycleHooks } from '../hooks';
 import { loadContext, CodegenContext } from '../config';
-import { isValidPath } from '@graphql-toolkit/common';
+import { isValidPath } from '@graphql-tools/utils';
 
 function log(msg: string) {
   // double spaces to inline the message with Listr
@@ -24,9 +24,9 @@ function emitWatching() {
 export const createWatcher = (
   initalContext: CodegenContext,
   onNext: (result: Types.FileOutput[]) => Promise<Types.FileOutput[]>
-) => {
+): Promise<void> => {
   debugLog(`[Watcher] Starting watcher...`);
-  let config: Types.Config = initalContext.getConfig();
+  let config: Types.Config & { configFilePath?: string } = initalContext.getConfig();
   const files: string[] = [initalContext.filepath].filter(a => a);
   const documents = normalizeInstanceOrArray<Types.OperationDocument>(config.documents);
   const schemas = normalizeInstanceOrArray<Types.Schema>(config.schema);
@@ -94,9 +94,8 @@ export const createWatcher = (
       followSymlinks: true,
       cwd: process.cwd(),
       disableGlobbing: false,
-      usePolling: true,
-      interval: 100,
-      binaryInterval: 300,
+      usePolling: config.watchConfig?.usePolling,
+      interval: config.watchConfig?.interval,
       depth: 99,
       awaitWriteFinish: true,
       ignorePermissionErrors: false,
@@ -119,17 +118,19 @@ export const createWatcher = (
       lifecycleHooks(config.hooks).onWatchTriggered(eventName, path);
       debugLog(`[Watcher] triggered due to a file ${eventName} event: ${path}`);
       const fullPath = join(process.cwd(), path);
+      delete require.cache[fullPath];
 
       if (eventName === 'change' && config.configFilePath && fullPath === config.configFilePath) {
         log(`${logSymbols.info} Config file has changed, reloading...`);
         const context = await loadContext(config.configFilePath);
 
-        const newParsedConfig = context.getConfig();
+        const newParsedConfig: Types.Config & { configFilePath?: string } = context.getConfig();
         newParsedConfig.watch = config.watch;
         newParsedConfig.silent = config.silent;
         newParsedConfig.overwrite = config.overwrite;
         newParsedConfig.configFilePath = config.configFilePath;
         config = newParsedConfig;
+        initalContext.updateConfig(config);
       }
 
       debouncedExec();
@@ -140,7 +141,7 @@ export const createWatcher = (
   };
 
   // the promise never resolves to keep process running
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     executeCodegen(initalContext)
       .then(onNext, () => Promise.resolve())
       .then(runWatcher)

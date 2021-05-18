@@ -1,11 +1,10 @@
 import { NormalizedScalarsMap } from './types';
 import autoBind from 'auto-bind';
 import { DEFAULT_SCALARS } from './scalars';
-import { DeclarationBlock, DeclarationBlockConfig, buildScalars, getConfigValue } from './utils';
+import { DeclarationBlock, DeclarationBlockConfig, getConfigValue, buildScalarsFromConfig } from './utils';
 import {
   GraphQLSchema,
   FragmentDefinitionNode,
-  GraphQLObjectType,
   OperationDefinitionNode,
   VariableDefinitionNode,
   OperationTypeNode,
@@ -14,7 +13,7 @@ import { SelectionSetToObject } from './selection-set-to-object';
 import { OperationVariablesToObject } from './variables-to-object';
 import { BaseVisitor } from './base-visitor';
 import { ParsedTypesConfig, RawTypesConfig } from './base-types-visitor';
-import { pascalCase } from 'pascal-case';
+import { pascalCase } from 'change-case-all';
 
 function getRootType(operation: OperationTypeNode, schema: GraphQLSchema) {
   switch (operation) {
@@ -36,16 +35,16 @@ export interface ParsedDocumentsConfig extends ParsedTypesConfig {
   omitOperationSuffix: boolean;
   namespacedImportName: string | null;
   exportFragmentSpreadSubTypes: boolean;
+  skipTypeNameForRoot: boolean;
+  experimentalFragmentVariables: boolean;
 }
 
 export interface RawDocumentsConfig extends RawTypesConfig {
   /**
-   * @name preResolveTypes
-   * @type boolean
    * @default false
    * @description Avoid using `Pick` and resolve the actual primitive type of all selection set.
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    * plugins
    *   config:
@@ -54,12 +53,22 @@ export interface RawDocumentsConfig extends RawTypesConfig {
    */
   preResolveTypes?: boolean;
   /**
-   * @name globalNamespace
-   * @type boolean
+   * @default false
+   * @description Avoid adding `__typename` for root types. This is ignored when a selection explictly specifies `__typename`.
+   *
+   * @exampleMarkdown
+   * ```yml
+   * plugins
+   *   config:
+   *     skipTypeNameForRoot: true
+   * ```
+   */
+  skipTypeNameForRoot?: boolean;
+  /**
    * @default false
    * @description Puts all generated code under `global` namespace. Useful for Stencil integration.
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    * plugins
    *   config:
@@ -68,35 +77,35 @@ export interface RawDocumentsConfig extends RawTypesConfig {
    */
   globalNamespace?: boolean;
   /**
-   * @name operationResultSuffix
-   * @type string
    * @default ""
    * @description Adds a suffix to generated operation result type names
    */
   operationResultSuffix?: string;
   /**
-   * @name dedupeOperationSuffix
-   * @type boolean
    * @default false
    * @description Set this configuration to `true` if you wish to make sure to remove duplicate operation name suffix.
    */
   dedupeOperationSuffix?: boolean;
   /**
-   * @name omitOperationSuffix
-   * @type boolean
    * @default false
    * @description Set this configuration to `true` if you wish to disable auto add suffix of operation name, like `Query`, `Mutation`, `Subscription`, `Fragment`.
    */
   omitOperationSuffix?: boolean;
   /**
-   * @name exportFragmentSpreadSubTypes
-   * @type boolean
    * @default false
    * @description If set to true, it will export the sub-types created in order to make it easier to access fields declared under fragment spread.
    */
   exportFragmentSpreadSubTypes?: boolean;
+  /**
+   * @default false
+   * @description If set to true, it will enable support for parsing variables on fragments.
+   */
+  experimentalFragmentVariables?: boolean;
 
   // The following are internal, and used by presets
+  /**
+   * @ignore
+   */
   namespacedImportName?: string;
 }
 
@@ -107,6 +116,7 @@ export class BaseDocumentsVisitor<
   protected _unnamedCounter = 1;
   protected _variablesTransfomer: OperationVariablesToObject;
   protected _selectionSetToObject: SelectionSetToObject;
+  protected _globalDeclarations: Set<string> = new Set<string>();
 
   constructor(
     rawConfig: TRawConfig,
@@ -120,11 +130,13 @@ export class BaseDocumentsVisitor<
       preResolveTypes: getConfigValue(rawConfig.preResolveTypes, false),
       dedupeOperationSuffix: getConfigValue(rawConfig.dedupeOperationSuffix, false),
       omitOperationSuffix: getConfigValue(rawConfig.omitOperationSuffix, false),
+      skipTypeNameForRoot: getConfigValue(rawConfig.skipTypeNameForRoot, false),
       namespacedImportName: getConfigValue(rawConfig.namespacedImportName, null),
+      experimentalFragmentVariables: getConfigValue(rawConfig.experimentalFragmentVariables, false),
       addTypename: !rawConfig.skipTypename,
       globalNamespace: !!rawConfig.globalNamespace,
       operationResultSuffix: getConfigValue(rawConfig.operationResultSuffix, ''),
-      scalars: buildScalars(_schema, rawConfig.scalars, defaultScalars),
+      scalars: buildScalarsFromConfig(_schema, rawConfig, defaultScalars),
       ...((additionalConfig || {}) as any),
     });
 
@@ -136,7 +148,11 @@ export class BaseDocumentsVisitor<
     );
   }
 
-  setSelectionSetHandler(handler: SelectionSetToObject) {
+  public getGlobalDeclarations(noExport = false): string[] {
+    return Array.from(this._globalDeclarations).map(t => (noExport ? t : `export ${t}`));
+  }
+
+  setSelectionSetHandler(handler: SelectionSetToObject): void {
     this._selectionSetToObject = handler;
   }
 
@@ -156,12 +172,13 @@ export class BaseDocumentsVisitor<
     return this._parsedConfig.addTypename;
   }
 
-  private handleAnonymouseOperation(node: OperationDefinitionNode): string {
+  private handleAnonymousOperation(node: OperationDefinitionNode): string {
     const name = node.name && node.name.value;
 
     if (name) {
-      return this.convertName(node, {
+      return this.convertName(name, {
         useTypesPrefix: false,
+        useTypesSuffix: false,
       });
     }
 
@@ -169,23 +186,41 @@ export class BaseDocumentsVisitor<
       prefix: 'Unnamed_',
       suffix: '_',
       useTypesPrefix: false,
+      useTypesSuffix: false,
     });
   }
 
   FragmentDefinition(node: FragmentDefinitionNode): string {
-    const fragmentRootType = this._schema.getType(node.typeCondition.name.value) as GraphQLObjectType;
+    const fragmentRootType = this._schema.getType(node.typeCondition.name.value);
     const selectionSet = this._selectionSetToObject.createNext(fragmentRootType, node.selectionSet);
     const fragmentSuffix = this.getFragmentSuffix(node);
+    return [
+      selectionSet.transformFragmentSelectionSetToTypes(node.name.value, fragmentSuffix, this._declarationBlockConfig),
+      this.config.experimentalFragmentVariables
+        ? new DeclarationBlock({
+            ...this._declarationBlockConfig,
+            blockTransformer: t => this.applyVariablesWrapper(t),
+          })
+            .export()
+            .asKind('type')
+            .withName(
+              this.convertName(node.name.value, {
+                suffix: fragmentSuffix + 'Variables',
+              })
+            )
+            .withBlock(this._variablesTransfomer.transform(node.variableDefinitions)).string
+        : undefined,
+    ]
+      .filter(r => r)
+      .join('\n\n');
+  }
 
-    return selectionSet.transformFragmentSelectionSetToTypes(
-      node.name.value,
-      fragmentSuffix,
-      this._declarationBlockConfig
-    );
+  protected applyVariablesWrapper(variablesBlock: string): string {
+    return variablesBlock;
   }
 
   OperationDefinition(node: OperationDefinitionNode): string {
-    const name = this.handleAnonymouseOperation(node);
+    const name = this.handleAnonymousOperation(node);
     const operationRootType = getRootType(node.operation, this._schema);
 
     if (!operationRootType) {
@@ -209,7 +244,10 @@ export class BaseDocumentsVisitor<
       )
       .withContent(selectionSet.transformSelectionSet()).string;
 
-    const operationVariables = new DeclarationBlock(this._declarationBlockConfig)
+    const operationVariables = new DeclarationBlock({
+      ...this._declarationBlockConfig,
+      blockTransformer: t => this.applyVariablesWrapper(t),
+    })
       .export()
       .asKind('type')
       .withName(

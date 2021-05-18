@@ -1,24 +1,25 @@
-import { GraphQLSchema, GraphQLOutputType, isEnumType, isNonNullType } from 'graphql';
 import {
-  wrapTypeWithModifiers,
-  PreResolveTypesProcessor,
-  ParsedDocumentsConfig,
+  AvoidOptionalsConfig,
   BaseDocumentsVisitor,
-  LoadedFragment,
+  DeclarationKind,
+  generateFragmentImportStatement,
   getConfigValue,
+  LoadedFragment,
+  normalizeAvoidOptionals,
+  ParsedDocumentsConfig,
+  PreResolveTypesProcessor,
   SelectionSetProcessorConfig,
   SelectionSetToObject,
-  DeclarationKind,
-  normalizeAvoidOptionals,
-  AvoidOptionalsConfig,
+  wrapTypeWithModifiers,
 } from '@graphql-codegen/visitor-plugin-common';
-import { TypeScriptOperationVariablesToObject } from './ts-operation-variables-to-object';
-import { TypeScriptDocumentsPluginConfig } from './config';
-
-import { TypeScriptSelectionSetProcessor } from './ts-selection-set-processor';
 import autoBind from 'auto-bind';
+import { GraphQLNamedType, GraphQLOutputType, GraphQLSchema, isEnumType, isNonNullType } from 'graphql';
+import { TypeScriptDocumentsPluginConfig } from './config';
+import { TypeScriptOperationVariablesToObject } from './ts-operation-variables-to-object';
+import { TypeScriptSelectionSetProcessor } from './ts-selection-set-processor';
 
 export interface TypeScriptDocumentsParsedConfig extends ParsedDocumentsConfig {
+  arrayInputCoercion: boolean;
   avoidOptionals: AvoidOptionalsConfig;
   immutableTypes: boolean;
   noExport: boolean;
@@ -32,6 +33,7 @@ export class TypeScriptDocumentsVisitor extends BaseDocumentsVisitor<
     super(
       config,
       {
+        arrayInputCoercion: getConfigValue(config.arrayInputCoercion, true),
         noExport: getConfigValue(config.noExport, false),
         avoidOptionals: normalizeAvoidOptionals(getConfigValue(config.avoidOptionals, false)),
         immutableTypes: getConfigValue(config.immutableTypes, false),
@@ -51,8 +53,12 @@ export class TypeScriptDocumentsVisitor extends BaseDocumentsVisitor<
       return `${listModifier}<${type}>`;
     };
 
-    const formatNamedField = (name: string, type: GraphQLOutputType | null): string => {
-      const optional = !this.config.avoidOptionals.field && !!type && !isNonNullType(type);
+    const formatNamedField = (
+      name: string,
+      type: GraphQLOutputType | GraphQLNamedType | null,
+      isConditional = false
+    ): string => {
+      const optional = isConditional || (!this.config.avoidOptionals.field && !!type && !isNonNullType(type));
       return (this.config.immutableTypes ? `readonly ${name}` : name) + (optional ? '?' : '');
     };
 
@@ -65,6 +71,7 @@ export class TypeScriptDocumentsVisitor extends BaseDocumentsVisitor<
       wrapTypeWithModifiers(baseType, type) {
         return wrapTypeWithModifiers(baseType, type, { wrapOptional, wrapArray });
       },
+      avoidOptionals: this.config.avoidOptionals,
     };
     const processor = new (config.preResolveTypes ? PreResolveTypesProcessor : TypeScriptSelectionSetProcessor)(
       processorConfig
@@ -90,7 +97,8 @@ export class TypeScriptDocumentsVisitor extends BaseDocumentsVisitor<
         this.config.namespacedImportName,
         enumsNames,
         this.config.enumPrefix,
-        this.config.enumValues
+        this.config.enumValues,
+        this.config.arrayInputCoercion
       )
     );
     this._declarationBlockConfig = {
@@ -98,7 +106,19 @@ export class TypeScriptDocumentsVisitor extends BaseDocumentsVisitor<
     };
   }
 
-  protected getPunctuation(declarationKind: DeclarationKind): string {
+  public getImports(): Array<string> {
+    return !this.config.globalNamespace
+      ? this.config.fragmentImports.map(fragmentImport => generateFragmentImportStatement(fragmentImport, 'type'))
+      : [];
+  }
+
+  protected getPunctuation(_declarationKind: DeclarationKind): string {
     return ';';
+  }
+
+  protected applyVariablesWrapper(variablesBlock: string): string {
+    const prefix = this.config.namespacedImportName ? `${this.config.namespacedImportName}.` : '';
+
+    return `${prefix}Exact<${variablesBlock === '{}' ? `{ [key: string]: never; }` : variablesBlock}>`;
   }
 }

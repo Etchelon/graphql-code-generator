@@ -1,20 +1,28 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`TypeScript Operations Plugin Config should include fragment variable definitions when experimentalFragmentVariables is set 1`] = `
+"export type TextNotificationFragmentFragment = (
+  { __typename?: 'TextNotification' }
+  & MakeOptional<Pick<TextNotification, 'text'>, 'text'>
+);
+
+
+export type TextNotificationFragmentFragmentVariables = Exact<{
+  skip: Scalars['Boolean'];
+}>;
+"
+`;
+
 exports[`TypeScript Operations Plugin Issues #2699 - Issues with multiple interfaces and unions 1`] = `
-"export type GetEntityBrandDataQueryVariables = {
+"export type GetEntityBrandDataQueryVariables = Exact<{
   gid: Scalars['ID'];
   brand: Scalars['ID'];
-};
+}>;
 
 
 export type GetEntityBrandDataQuery = (
   { __typename?: 'Query' }
   & { node: (
-    { __typename: 'User' }
-    & Pick<User, 'id'>
-    & EntityBrandData_User_Fragment
-    & ElementMetadata_User_Fragment
-  ) | (
     { __typename: 'Company' }
     & Pick<Company, 'active' | 'id'>
     & EntityBrandData_Company_Fragment
@@ -29,15 +37,12 @@ export type GetEntityBrandDataQuery = (
     & Pick<Movie, 'id'>
     & EntityBrandData_Movie_Fragment
     & ElementMetadata_Movie_Fragment
+  ) | (
+    { __typename: 'User' }
+    & Pick<User, 'id'>
+    & EntityBrandData_User_Fragment
+    & ElementMetadata_User_Fragment
   ) }
-);
-
-type EntityBrandData_User_Fragment = (
-  { __typename?: 'User' }
-  & { brandData?: Maybe<(
-    { __typename?: 'EntityBrandData' }
-    & Pick<EntityBrandData, 'active' | 'browsable' | 'title' | 'alternateTitle' | 'description'>
-  )> }
 );
 
 type EntityBrandData_Company_Fragment = (
@@ -64,19 +69,15 @@ type EntityBrandData_Movie_Fragment = (
   )> }
 );
 
-export type EntityBrandDataFragment = EntityBrandData_User_Fragment | EntityBrandData_Company_Fragment | EntityBrandData_Theater_Fragment | EntityBrandData_Movie_Fragment;
-
-type ElementMetadata_User_Fragment = (
+type EntityBrandData_User_Fragment = (
   { __typename?: 'User' }
-  & Pick<User, 'createdAt' | 'updatedAt'>
-  & { createdBy?: Maybe<(
-    { __typename?: 'User' }
-    & Pick<User, 'id' | 'name'>
-  )>, updatedBy?: Maybe<(
-    { __typename?: 'User' }
-    & Pick<User, 'id' | 'name'>
+  & { brandData?: Maybe<(
+    { __typename?: 'EntityBrandData' }
+    & Pick<EntityBrandData, 'active' | 'browsable' | 'title' | 'alternateTitle' | 'description'>
   )> }
 );
+
+export type EntityBrandDataFragment = EntityBrandData_Company_Fragment | EntityBrandData_Theater_Fragment | EntityBrandData_Movie_Fragment | EntityBrandData_User_Fragment;
 
 type ElementMetadata_Company_Fragment = (
   { __typename?: 'Company' }
@@ -114,12 +115,24 @@ type ElementMetadata_Movie_Fragment = (
   )> }
 );
 
-export type ElementMetadataFragment = ElementMetadata_User_Fragment | ElementMetadata_Company_Fragment | ElementMetadata_Theater_Fragment | ElementMetadata_Movie_Fragment;
+type ElementMetadata_User_Fragment = (
+  { __typename?: 'User' }
+  & Pick<User, 'createdAt' | 'updatedAt'>
+  & { createdBy?: Maybe<(
+    { __typename?: 'User' }
+    & Pick<User, 'id' | 'name'>
+  )>, updatedBy?: Maybe<(
+    { __typename?: 'User' }
+    & Pick<User, 'id' | 'name'>
+  )> }
+);
+
+export type ElementMetadataFragment = ElementMetadata_Company_Fragment | ElementMetadata_Theater_Fragment | ElementMetadata_Movie_Fragment | ElementMetadata_User_Fragment;
 "
 `;
 
 exports[`TypeScript Operations Plugin Issues #2916 - Missing import prefix with preResolveTypes: true and near-operation-file preset 1`] = `
-"export type UserQueryVariables = {};
+"export type UserQueryVariables = Types.Exact<{ [key: string]: never; }>;
 
 
 export type UserQuery = { user: { id: string, username: string, email: string, dep: Types.Department } };
@@ -143,7 +156,7 @@ type Venue_Transport_Fragment = (
 
 export type VenueFragment = Venue_Hotel_Fragment | Venue_Transport_Fragment;
 
-export type QQueryVariables = {};
+export type QQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type QQuery = (
@@ -161,6 +174,9 @@ export type QQuery = (
 
 exports[`TypeScript Operations Plugin Issues #3064 - fragments over interfaces causes issues with fields 2`] = `
 "export type Maybe<T> = T | null;
+export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
+export type MakeOptional<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]?: Maybe<T[SubKey]> };
+export type MakeMaybe<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]: Maybe<T[SubKey]> };
 /** All built-in and custom scalars, mapped to their actual values */
 export type Scalars = {
   ID: string;
@@ -170,39 +186,39 @@ export type Scalars = {
   Float: number;
 };
 
-export type GpsPosition = {
-   __typename?: 'GPSPosition';
-  lat: Scalars['Float'];
-  lng: Scalars['Float'];
-};
-
-export type Hotel = VenueWithPosition & Venue & {
-   __typename?: 'Hotel';
-  id: Scalars['String'];
-  gpsPosition: GpsPosition;
-  name: Scalars['String'];
-};
-
-export type Query = {
-   __typename?: 'Query';
-  hotel: Hotel;
-  transport: Transport;
-};
-
-export type Transport = Venue & {
-   __typename?: 'Transport';
-  id: Scalars['String'];
-  name: Scalars['String'];
-};
-
 export type Venue = {
   id: Scalars['String'];
   name: Scalars['String'];
 };
 
+export type GpsPosition = {
+  __typename?: 'GPSPosition';
+  lat: Scalars['Float'];
+  lng: Scalars['Float'];
+};
+
 export type VenueWithPosition = {
   id: Scalars['String'];
   gpsPosition: GpsPosition;
+};
+
+export type Hotel = VenueWithPosition & Venue & {
+  __typename?: 'Hotel';
+  id: Scalars['String'];
+  gpsPosition: GpsPosition;
+  name: Scalars['String'];
+};
+
+export type Transport = Venue & {
+  __typename?: 'Transport';
+  id: Scalars['String'];
+  name: Scalars['String'];
+};
+
+export type Query = {
+  __typename?: 'Query';
+  hotel: Hotel;
+  transport: Transport;
 };
 type Venue_Hotel_Fragment = (
   { __typename?: 'Hotel' }
@@ -220,7 +236,7 @@ type Venue_Transport_Fragment = (
 
 export type VenueFragment = Venue_Hotel_Fragment | Venue_Transport_Fragment;
 
-export type QQueryVariables = {};
+export type QQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type QQuery = (
@@ -237,7 +253,7 @@ function test(q: QQuery) {
         if (q.hotel) {
             const t1 = q.hotel.gpsPosition.lat
         }
-        
+
         if (q.transport) {
             const t2 = q.transport.id;
         }
@@ -245,7 +261,7 @@ function test(q: QQuery) {
 `;
 
 exports[`TypeScript Operations Plugin Selection Set Should generate the correct __typename when using both inline fragment and spread over type 1`] = `
-"export type UserQueryQueryVariables = {};
+"export type UserQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type UserQueryQuery = (
@@ -264,7 +280,7 @@ export type UserFragment = (
 `;
 
 exports[`TypeScript Operations Plugin Selection Set Should generate the correct __typename when using fragment over type 1`] = `
-"export type UserQueryQueryVariables = {};
+"export type UserQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type UserQueryQuery = (
@@ -278,7 +294,7 @@ export type UserQueryQuery = (
 `;
 
 exports[`TypeScript Operations Plugin Selection Set Should generate the correct __typename when using fragment spread over type 1`] = `
-"export type UserQueryQueryVariables = {};
+"export type UserQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type UserQueryQuery = (
@@ -302,7 +318,7 @@ exports[`TypeScript Operations Plugin Selection Set Should generate the correct 
   & Pick<User, 'id'>
 );
 
-export type AaaQueryVariables = {};
+export type AaaQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type AaaQuery = (
@@ -316,7 +332,7 @@ export type AaaQuery = (
 `;
 
 exports[`TypeScript Operations Plugin Selection Set Should generate the correct intersection for fragments when using with interfaces with same type 1`] = `
-"export type Unnamed_1_QueryVariables = {};
+"export type Unnamed_1_QueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type Unnamed_1_Query = (
@@ -353,7 +369,7 @@ type NetRoute_Ipv6Route_Fragment = (
 
 export type NetRouteFragment = NetRoute_Ipv4Route_Fragment | NetRoute_Ipv6Route_Fragment;
 
-export type QqQueryVariables = {};
+export type QqQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type QqQuery = (
@@ -387,7 +403,7 @@ export type TestFragment = (
   & { ipv6Address: Ipv6Route['address'], ipv6Gateway: Ipv6Route['gateway'] }
 );
 
-export type QqQueryVariables = {};
+export type QqQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type QqQuery = (
@@ -426,7 +442,7 @@ type User_Jerry_Fragment = (
 
 export type UserFragment = User_Tom_Fragment | User_Jerry_Fragment;
 
-export type UserQueryQueryVariables = {};
+export type UserQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type UserQueryQuery = (
@@ -442,8 +458,63 @@ export type UserQueryQuery = (
 "
 `;
 
+exports[`TypeScript Operations Plugin Union & Interfaces #4216 - handle fragments against unions and interfaces with flattenGeneratedTypes 1`] = `
+"export type Maybe<T> = T | null;
+export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
+export type MakeOptional<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]?: Maybe<T[SubKey]> };
+export type MakeMaybe<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]: Maybe<T[SubKey]> };
+/** All built-in and custom scalars, mapped to their actual values */
+export type Scalars = {
+  ID: string;
+  String: string;
+  Boolean: boolean;
+  Int: number;
+  Float: number;
+};
+
+export type Query = {
+  __typename?: 'Query';
+  search?: Maybe<Array<Searchable>>;
+};
+
+export type Concept = {
+  id?: Maybe<Scalars['String']>;
+};
+
+export type Dimension = Concept & {
+  __typename?: 'Dimension';
+  id?: Maybe<Scalars['String']>;
+};
+
+export type DimValue = {
+  __typename?: 'DimValue';
+  dimension?: Maybe<Dimension>;
+  value: Scalars['String'];
+};
+
+export type Searchable = Dimension | DimValue;
+export type SearchPopularQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type SearchPopularQuery = (
+  { __typename?: 'Query' }
+  & { search?: Maybe<Array<(
+    { __typename?: 'Dimension' }
+    & Pick<Dimension, 'id'>
+  ) | (
+    { __typename?: 'DimValue' }
+    & Pick<DimValue, 'value'>
+    & { dimension?: Maybe<(
+      { __typename?: 'Dimension' }
+      & Pick<Dimension, 'id'>
+    )> }
+  )>> }
+);
+"
+`;
+
 exports[`TypeScript Operations Plugin Union & Interfaces Should handle union selection sets with both FragmentSpreads and InlineFragments 1`] = `
-"export type UserQueryQueryVariables = {};
+"export type UserQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type UserQueryQuery = (
@@ -509,6 +580,9 @@ export type UserResultFragment = UserResult_User_Fragment | UserResult_Error2_Fr
 
 exports[`TypeScript Operations Plugin Union & Interfaces Should handle union selection sets with both FragmentSpreads and InlineFragments with flattenGeneratedTypes 1`] = `
 "export type Maybe<T> = T | null;
+export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
+export type MakeOptional<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]?: Maybe<T[SubKey]> };
+export type MakeMaybe<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]: Maybe<T[SubKey]> };
 /** All built-in and custom scalars, mapped to their actual values */
 export type Scalars = {
   ID: string;
@@ -518,45 +592,45 @@ export type Scalars = {
   Float: number;
 };
 
-export type AdditionalInfo = {
-   __typename?: 'AdditionalInfo';
-  message: Scalars['String'];
-  message2: Scalars['String'];
-};
-
 export type Error = {
   message: Scalars['String'];
 };
 
 export type Error1 = Error & {
-   __typename?: 'Error1';
+  __typename?: 'Error1';
   message: Scalars['String'];
 };
 
 export type Error2 = Error & {
-   __typename?: 'Error2';
+  __typename?: 'Error2';
   message: Scalars['String'];
 };
 
 export type Error3 = Error & {
-   __typename?: 'Error3';
+  __typename?: 'Error3';
   message: Scalars['String'];
   info?: Maybe<AdditionalInfo>;
 };
 
-export type Query = {
-   __typename?: 'Query';
-  user: UserResult;
+export type AdditionalInfo = {
+  __typename?: 'AdditionalInfo';
+  message: Scalars['String'];
+  message2: Scalars['String'];
 };
 
 export type User = {
-   __typename?: 'User';
+  __typename?: 'User';
   id: Scalars['ID'];
   login: Scalars['String'];
 };
 
 export type UserResult = User | Error2 | Error3;
-export type UserQueryQueryVariables = {};
+
+export type Query = {
+  __typename?: 'Query';
+  user: UserResult;
+};
+export type UserQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type UserQueryQuery = (
@@ -598,6 +672,9 @@ export type UserQueryQuery = (
 
 exports[`TypeScript Operations Plugin Union & Interfaces Should handle union selection sets with both FragmentSpreads and InlineFragments with flattenGeneratedTypes and directives 1`] = `
 "export type Maybe<T> = T | null;
+export type Exact<T extends { [key: string]: unknown }> = { [K in keyof T]: T[K] };
+export type MakeOptional<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]?: Maybe<T[SubKey]> };
+export type MakeMaybe<T, K extends keyof T> = Omit<T, K> & { [SubKey in K]: Maybe<T[SubKey]> };
 /** All built-in and custom scalars, mapped to their actual values */
 export type Scalars = {
   ID: string;
@@ -609,39 +686,34 @@ export type Scalars = {
 
 
 
-export type AdditionalInfo = {
-   __typename?: 'AdditionalInfo';
-  message: Scalars['String'];
-  message2: Scalars['String'];
-};
-
 export type Error = {
   message: Scalars['String'];
 };
 
 export type Error1 = Error & {
-   __typename?: 'Error1';
+  __typename?: 'Error1';
   message: Scalars['String'];
 };
 
 export type Error2 = Error & {
-   __typename?: 'Error2';
+  __typename?: 'Error2';
   message: Scalars['String'];
 };
 
 export type Error3 = Error & {
-   __typename?: 'Error3';
+  __typename?: 'Error3';
   message: Scalars['String'];
   info?: Maybe<AdditionalInfo>;
 };
 
-export type Query = {
-   __typename?: 'Query';
-  user: UserResult;
+export type AdditionalInfo = {
+  __typename?: 'AdditionalInfo';
+  message: Scalars['String'];
+  message2: Scalars['String'];
 };
 
 export type User = {
-   __typename?: 'User';
+  __typename?: 'User';
   id: Scalars['ID'];
   login: Scalars['String'];
   test?: Maybe<Scalars['String']>;
@@ -649,7 +721,12 @@ export type User = {
 };
 
 export type UserResult = User | Error2 | Error3;
-export type UserQueryQueryVariables = {};
+
+export type Query = {
+  __typename?: 'Query';
+  user: UserResult;
+};
+export type UserQueryQueryVariables = Exact<{ [key: string]: never; }>;
 
 
 export type UserQueryQuery = (

@@ -8,7 +8,7 @@ import {
 import autoBind from 'auto-bind';
 import { OperationDefinitionNode, GraphQLSchema } from 'graphql';
 import { Types } from '@graphql-codegen/plugin-helpers';
-import { pascalCase } from 'pascal-case';
+import { pascalCase } from 'change-case-all';
 
 export interface ReactApolloPluginConfig extends ClientSideBasePluginConfig {}
 
@@ -39,7 +39,7 @@ export class ReactApolloVisitor extends ClientSideBaseVisitor<RawClientSideBaseP
   }
 
   public getImports(): string[] {
-    const baseImports = super.getImports();
+    const baseImports = super.getImports({ excludeFragments: true });
     const hasOperations = this._collectedOperations.length > 0;
 
     if (!hasOperations) {
@@ -56,7 +56,7 @@ export class ReactApolloVisitor extends ClientSideBaseVisitor<RawClientSideBaseP
     operationResultType: string,
     operationVariablesTypes: string
   ): string {
-    const operationName: string = this.convertName(node.name.value, {
+    const operationName: string = this.convertName(node.name?.value ?? '', {
       useTypesPrefix: false,
     });
 

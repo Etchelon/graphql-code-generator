@@ -17,6 +17,7 @@ import {
   isNonNullType,
   GraphQLObjectType,
   GraphQLOutputType,
+  isTypeSubTypeOf,
 } from 'graphql';
 import {
   getPossibleTypes,
@@ -24,10 +25,11 @@ import {
   getFieldNodeNameValue,
   DeclarationBlock,
   mergeSelectionSets,
+  hasConditionalDirectives,
 } from './utils';
 import { NormalizedScalarsMap, ConvertNameFn, LoadedFragment, GetFragmentSuffixFn } from './types';
 import { BaseVisitorConvertOptions } from './base-visitor';
-import { getBaseType } from '@graphql-codegen/plugin-helpers';
+import { getBaseType, removeNonNullWrapper } from '@graphql-codegen/plugin-helpers';
 import { ParsedDocumentsConfig } from './base-documents-visitor';
 import {
   LinkField,
@@ -102,7 +104,7 @@ export class SelectionSetToObject<Config extends ParsedDocumentsConfig = ParsedD
           this._appendToTypeMap(types, typeOnSchema.name, fields);
           this._appendToTypeMap(types, typeOnSchema.name, spreadsUsage[typeOnSchema.name]);
           this._collectInlineFragments(typeOnSchema, inlines, types);
-        } else if (isInterfaceType(typeOnSchema) && parentType.isTypeOf(typeOnSchema, null, null)) {
+        } else if (isInterfaceType(typeOnSchema) && parentType.getInterfaces().includes(typeOnSchema)) {
           this._appendToTypeMap(types, parentType.name, fields);
           this._appendToTypeMap(types, parentType.name, spreadsUsage[parentType.name]);
           this._collectInlineFragments(typeOnSchema, inlines, types);
@@ -127,9 +129,19 @@ export class SelectionSetToObject<Config extends ParsedDocumentsConfig = ParsedD
             this._collectInlineFragments(schemaType, inlines, types);
           }
         } else {
+          // it must be an interface type that is spread on an interface field
+
           for (const possibleType of possibleTypes) {
-            this._appendToTypeMap(types, possibleType.name, fields);
-            this._appendToTypeMap(types, possibleType.name, spreadsUsage[possibleType.name]);
+            if (!node.typeCondition) {
+              throw new Error('Invalid state. Expected type condition for interface spread on a interface field.');
+            }
+            const fragmentSpreadType = this._schema.getType(node.typeCondition.name.value);
+            // the field should only be added to the valid selections
+            // in case the possible type actually implements the given interface
+            if (isTypeSubTypeOf(this._schema, possibleType, fragmentSpreadType)) {
+              this._appendToTypeMap(types, possibleType.name, fields);
+              this._appendToTypeMap(types, possibleType.name, spreadsUsage[possibleType.name]);
+            }
           }
         }
       }
@@ -360,14 +372,15 @@ export class SelectionSetToObject<Config extends ParsedDocumentsConfig = ParsedD
     for (const { field, selectedFieldType } of linkFieldSelectionSets.values()) {
       const realSelectedFieldType = getBaseType(selectedFieldType as any);
       const selectionSet = this.createNext(realSelectedFieldType, field.selectionSet);
+      const isConditional = hasConditionalDirectives(field);
 
       linkFields.push({
         alias: field.alias ? this._processor.config.formatNamedField(field.alias.value, selectedFieldType) : undefined,
-        name: this._processor.config.formatNamedField(field.name.value, selectedFieldType),
+        name: this._processor.config.formatNamedField(field.name.value, selectedFieldType, isConditional),
         type: realSelectedFieldType.name,
         selectionSet: this._processor.config.wrapTypeWithModifiers(
           selectionSet.transformSelectionSet().split(`\n`).join(`\n  `),
-          selectedFieldType
+          isConditional ? removeNonNullWrapper(selectedFieldType) : selectedFieldType
         ),
       });
     }
@@ -376,13 +389,17 @@ export class SelectionSetToObject<Config extends ParsedDocumentsConfig = ParsedD
       parentSchemaType,
       this._config.nonOptionalTypename,
       this._config.addTypename,
-      requireTypename
+      requireTypename,
+      this._config.skipTypeNameForRoot
     );
     const transformed: ProcessResult = [
       ...(typeInfoField ? this._processor.transformTypenameField(typeInfoField.type, typeInfoField.name) : []),
       ...this._processor.transformPrimitiveFields(
         parentSchemaType,
-        Array.from(primitiveFields.values()).map(field => field.name.value)
+        Array.from(primitiveFields.values()).map(field => ({
+          isConditional: hasConditionalDirectives(field),
+          fieldName: field.name.value,
+        }))
       ),
       ...this._processor.transformAliasesPrimitiveFields(
         parentSchemaType,
@@ -409,12 +426,25 @@ export class SelectionSetToObject<Config extends ParsedDocumentsConfig = ParsedD
     return this._processor.buildSelectionSetFromStrings(fields);
   }
 
+  protected isRootType(type: GraphQLObjectType): boolean {
+    const rootType = [this._schema.getQueryType(), this._schema.getMutationType(), this._schema.getSubscriptionType()]
+      .filter(Boolean)
+      .map(t => t.name);
+
+    return rootType.includes(type.name);
+  }
+
   protected buildTypeNameField(
     type: GraphQLObjectType,
     nonOptionalTypename: boolean = this._config.nonOptionalTypename,
     addTypename: boolean = this._config.addTypename,
-    queriedForTypename: boolean = this._queriedForTypename
+    queriedForTypename: boolean = this._queriedForTypename,
+    skipTypeNameForRoot: boolean = this._config.skipTypeNameForRoot
   ): { name: string; type: string } {
+    if (this.isRootType(type) && skipTypeNameForRoot && !queriedForTypename) {
+      return null;
+    }
+
     if (nonOptionalTypename || addTypename || queriedForTypename) {
       const optionalTypename = !queriedForTypename && !nonOptionalTypename;
 
@@ -427,8 +457,19 @@ export class SelectionSetToObject<Config extends ParsedDocumentsConfig = ParsedD
     return null;
   }
 
+  protected getUnknownType(): string {
+    return 'never';
+  }
+
   public transformSelectionSet(): string {
     const grouped = this._buildGroupedSelections();
+
+    // This might happen in case we have an interface, that is being queries, without any GraphQL
+    // "type" that implements it. It will lead to a runtime error, but we aim to try to reflect that in
+    // build time as well.
+    if (Object.keys(grouped).length === 0) {
+      return this.getUnknownType();
+    }
 
     return Object.keys(grouped)
       .map(typeName => {

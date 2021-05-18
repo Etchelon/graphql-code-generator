@@ -1,13 +1,14 @@
 import gql from 'graphql-tag';
+import { FeedEntryFragmentDoc } from './feed-entry.fragment.stencil-component';
 import 'stencil-apollo';
 import { Component, Prop, h } from '@stencil/core';
 
 declare global {
-  export type FeedQueryVariables = {
+  export type FeedQueryVariables = Types.Exact<{
     type: Types.FeedType;
     offset?: Types.Maybe<Types.Scalars['Int']>;
     limit?: Types.Maybe<Types.Scalars['Int']>;
-  };
+  }>;
 
   export type FeedQuery = { __typename?: 'Query' } & {
     currentUser?: Types.Maybe<{ __typename?: 'User' } & Pick<Types.User, 'login'>>;

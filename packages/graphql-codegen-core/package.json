@@ -1,18 +1,16 @@
 {
   "name": "@graphql-codegen/core",
-  "version": "1.13.1",
+  "version": "1.17.9",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dotansimha/graphql-code-generator.git"
+    "url": "https://github.com/dotansimha/graphql-code-generator.git",
+    "directory": "packages/graphql-codegen-core"
   },
   "scripts": {
     "lint": "eslint **/*.ts",
-    "prepack": "bob-update-version",
-    "clean": "rimraf ./dist",
-    "prebuild": "yarn clean",
-    "build": "bob",
-    "test": "jest --no-watchman --config ../../jest.config.js"
+    "test": "jest --no-watchman --config ../../jest.config.js",
+    "prepack": "bob prepack"
   },
   "keywords": [
     "gql",
@@ -37,19 +35,14 @@
   },
   "homepage": "https://github.com/dotansimha/graphql-codegen#readme",
   "peerDependencies": {
-    "graphql": "^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0"
+    "graphql": "^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0"
   },
   "dependencies": {
-    "@graphql-codegen/plugin-helpers": "1.13.1",
-    "@graphql-toolkit/common": "0.9.9",
-    "@graphql-toolkit/schema-merging": "0.9.9",
-    "tslib": "1.11.1"
+    "@graphql-codegen/plugin-helpers": "^1.18.2",
+    "@graphql-tools/merge": "^6",
+    "@graphql-tools/utils": "^7.0.0",
+    "tslib": "~2.2.0"
   },
-  "devDependencies": {
-    "bob-the-bundler": "0.3.4",
-    "ts-jest": "25.2.1"
-  },
-  "sideEffects": false,
   "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",
   "typings": "dist/index.d.ts",
@@ -59,10 +52,8 @@
   "buildOptions": {
     "input": "./src/index.ts"
   },
-  "jest-junit": {
-    "outputDirectory": "../../test-results/core"
-  },
   "publishConfig": {
+    "directory": "dist",
     "access": "public"
   }
 }

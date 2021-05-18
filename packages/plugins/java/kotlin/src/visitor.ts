@@ -1,12 +1,12 @@
 import {
   BaseVisitor,
-  buildScalars,
   EnumValuesMap,
   indent,
   indentMultiline,
   ParsedConfig,
   transformComment,
   getBaseTypeNode,
+  buildScalarsFromConfig,
 } from '@graphql-codegen/visitor-plugin-common';
 import { KotlinResolversPluginRawConfig } from './config';
 import {
@@ -18,6 +18,7 @@ import {
   InputValueDefinitionNode,
   isEnumType,
   isInputObjectType,
+  isObjectType,
   isScalarType,
   Kind,
   ObjectTypeDefinitionNode,
@@ -27,7 +28,7 @@ import {
 import { wrapTypeWithModifiers } from '@graphql-codegen/java-common';
 
 export const KOTLIN_SCALARS = {
-  ID: 'String',
+  ID: 'Any',
   String: 'String',
   Boolean: 'Boolean',
   Int: 'Int',
@@ -38,6 +39,12 @@ export interface KotlinResolverParsedConfig extends ParsedConfig {
   package: string;
   listType: string;
   enumValues: EnumValuesMap;
+  withTypes: boolean;
+}
+
+export interface FieldDefinitionReturnType {
+  inputTransformer?: ((typeName: string) => string) | FieldDefinitionNode;
+  node: FieldDefinitionNode;
 }
 
 export class KotlinResolversVisitor extends BaseVisitor<KotlinResolversPluginRawConfig, KotlinResolverParsedConfig> {
@@ -45,8 +52,9 @@ export class KotlinResolversVisitor extends BaseVisitor<KotlinResolversPluginRaw
     super(rawConfig, {
       enumValues: rawConfig.enumValues || {},
       listType: rawConfig.listType || 'Iterable',
+      withTypes: rawConfig.withTypes || false,
       package: rawConfig.package || defaultPackageName,
-      scalars: buildScalars(_schema, rawConfig.scalars, KOTLIN_SCALARS),
+      scalars: buildScalarsFromConfig(_schema, rawConfig, KOTLIN_SCALARS),
     });
   }
 
@@ -87,7 +95,7 @@ export class KotlinResolversVisitor extends BaseVisitor<KotlinResolversPluginRaw
 
     return `${comment}enum class ${enumName}(val label: String) {
 ${enumValues}
-
+        
   companion object {
     @JvmStatic
     fun valueOfLabel(label: String): ${enumName}? {
@@ -121,14 +129,16 @@ ${enumValues}
         result = { isArray, baseType: 'Any', typeName: 'Any', isScalar: true, nullable: nullable };
       }
     } else if (isInputObjectType(schemaType)) {
+      const convertedName = this.convertName(schemaType.name);
+      const typeName = convertedName.endsWith('Input') ? convertedName : `${convertedName}Input`;
       result = {
-        baseType: `${this.convertName(schemaType.name)}Input`,
-        typeName: `${this.convertName(schemaType.name)}Input`,
+        baseType: typeName,
+        typeName: typeName,
         isScalar: false,
         isArray,
         nullable: nullable,
       };
-    } else if (isEnumType(schemaType)) {
+    } else if (isEnumType(schemaType) || isObjectType(schemaType)) {
       result = {
         isArray,
         baseType: this.convertName(schemaType.name),
@@ -155,6 +165,60 @@ ${enumValues}
         const initial = initialValue ? ` = ${initialValue}` : typeToUse.nullable ? ' = null' : '';
 
         return indent(`val ${arg.name.value}: ${typeToUse.typeName}${typeToUse.nullable ? '?' : ''}${initial}`, 2);
+      })
+      .join(',\n');
+    let suppress = '';
+    const ctorSet = inputValueArray
+      .map(arg => {
+        const typeToUse = this.resolveInputFieldType(arg.type);
+        const initialValue = this.initialValue(typeToUse.typeName, arg.defaultValue);
+        const fallback = initialValue ? ` ?: ${initialValue}` : '';
+
+        if (typeToUse.isArray && !typeToUse.isScalar) {
+          suppress = '@Suppress("UNCHECKED_CAST")\n  ';
+          return indent(
+            `args["${arg.name.value}"]${typeToUse.nullable || fallback ? '?' : '!!'}.let { ${arg.name.value} -> (${
+              arg.name.value
+            } as List<Map<String, Any>>).map { ${typeToUse.baseType}(it) } }${fallback}`,
+            3
+          );
+        } else if (typeToUse.isScalar) {
+          return indent(
+            `args["${arg.name.value}"] as ${typeToUse.typeName}${typeToUse.nullable || fallback ? '?' : ''}${fallback}`,
+            3
+          );
+        } else if (typeToUse.nullable || fallback) {
+          suppress = '@Suppress("UNCHECKED_CAST")\n  ';
+          return indent(
+            `args["${arg.name.value}"]?.let { ${typeToUse.typeName}(it as Map<String, Any>) }${fallback}`,
+            3
+          );
+        } else {
+          suppress = '@Suppress("UNCHECKED_CAST")\n  ';
+          return indent(`${typeToUse.typeName}(args["${arg.name.value}"] as Map<String, Any>)`, 3);
+        }
+      })
+      .join(',\n');
+
+    // language=kotlin
+    return `data class ${name}(
+${classMembers}
+) {
+  ${suppress}constructor(args: Map<String, Any>) : this(
+${ctorSet}
+  )
+}`;
+  }
+
+  protected buildTypeTransfomer(name: string, typeValueArray: ReadonlyArray<FieldDefinitionNode>): string {
+    const classMembers = typeValueArray
+      .map(arg => {
+        if (!arg.type) {
+          return '';
+        }
+        const typeToUse = this.resolveInputFieldType(arg.type);
+
+        return indent(`val ${arg.name.value}: ${typeToUse.typeName}${typeToUse.nullable ? '?' : ''}`, 2);
       })
       .join(',\n');
 
@@ -192,30 +256,48 @@ ${classMembers}
     return undefined;
   }
 
-  FieldDefinition(node: FieldDefinitionNode): (typeName: string) => string {
-    return (typeName: string) => {
-      if (node.arguments.length > 0) {
+  FieldDefinition(node: FieldDefinitionNode): FieldDefinitionReturnType {
+    if (node.arguments.length > 0) {
+      const inputTransformer = (typeName: string) => {
         const transformerName = `${this.convertName(typeName, { useTypesPrefix: true })}${this.convertName(
           node.name.value,
           { useTypesPrefix: false }
         )}Args`;
 
         return this.buildInputTransfomer(transformerName, node.arguments);
-      }
+      };
 
-      return null;
-    };
+      return { node, inputTransformer };
+    }
+    return { node };
   }
 
   InputObjectTypeDefinition(node: InputObjectTypeDefinitionNode): string {
-    const name = `${this.convertName(node)}Input`;
+    const convertedName = this.convertName(node);
+    const name = convertedName.endsWith('Input') ? convertedName : `${convertedName}Input`;
 
     return this.buildInputTransfomer(name, node.fields);
   }
 
   ObjectTypeDefinition(node: ObjectTypeDefinitionNode): string {
-    const fieldsArguments = node.fields.map(f => (f as any)(node.name.value)).filter(r => r);
+    const name = this.convertName(node);
+    const fields = (node.fields as unknown) as FieldDefinitionReturnType[];
 
-    return fieldsArguments.join('\n');
+    const fieldNodes = [];
+    const argsTypes = [];
+    fields.forEach(({ node, inputTransformer }) => {
+      if (node) {
+        fieldNodes.push(node);
+      }
+      if (inputTransformer) {
+        argsTypes.push(inputTransformer);
+      }
+    });
+
+    let types = argsTypes.map(f => (f as any)(node.name.value)).filter(r => r);
+    if (this.config.withTypes) {
+      types = types.concat([this.buildTypeTransfomer(name, fieldNodes)]);
+    }
+    return types.join('\n');
   }
 }

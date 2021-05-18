@@ -1,16 +1,24 @@
-import { GraphQLSchema, printSchema } from 'graphql';
+import {
+  GraphQLSchema,
+  lexicographicSortSchema,
+  printSchema,
+  visit,
+  buildASTSchema,
+  parse as parseSchema,
+} from 'graphql';
 import { PluginFunction, PluginValidateFn, Types, removeFederation } from '@graphql-codegen/plugin-helpers';
 import { extname } from 'path';
-import { printSchemaWithDirectives } from '@graphql-toolkit/common';
+import { printSchemaWithDirectives } from '@graphql-tools/utils';
 
+/**
+ * @description This plugin prints the merged schema as string. If multiple schemas are provided, they will be merged and printed as one schema.
+ */
 export interface SchemaASTConfig {
   /**
-   * @name includeDirectives
-   * @type boolean
    * @description Include directives to Schema output.
    * @default false
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    * schema:
    *   - './src/schema.graphql'
@@ -24,12 +32,10 @@ export interface SchemaASTConfig {
    */
   includeDirectives?: boolean;
   /**
-   * @name commentDescriptions
-   * @type boolean
    * @description Set to true in order to print description as comments (using # instead of """)
    * @default false
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    * schema: http://localhost:3000/graphql
    * generates:
@@ -41,15 +47,21 @@ export interface SchemaASTConfig {
    * ```
    */
   commentDescriptions?: boolean;
+  /**
+   * @description Set to true in order get the schema lexicographically sorted before printed.
+   * @default false
+   */
+  sort?: boolean;
   federation?: boolean;
 }
 
 export const plugin: PluginFunction<SchemaASTConfig> = async (
   schema: GraphQLSchema,
   _documents,
-  { commentDescriptions = false, includeDirectives = false, federation }
+  { commentDescriptions = false, includeDirectives = false, sort = false, federation }
 ): Promise<string> => {
-  const outputSchema = federation ? removeFederation(schema) : schema;
+  let outputSchema = federation ? removeFederation(schema) : schema;
+  outputSchema = sort ? lexicographicSortSchema(outputSchema) : outputSchema;
 
   if (includeDirectives) {
     return printSchemaWithDirectives(outputSchema);
@@ -71,3 +83,24 @@ export const validate: PluginValidateFn<any> = async (
     throw new Error(`Plugin "schema-ast" requires extension to be ".graphql"!`);
   }
 };
+
+export function transformSchemaAST(schema: GraphQLSchema, config: { [key: string]: any }) {
+  const printedSchema = printSchema(schema);
+  const astNode = parseSchema(printedSchema);
+
+  const transformedAST = config.disableDescriptions
+    ? visit(astNode, {
+        leave: node => ({
+          ...node,
+          description: undefined,
+        }),
+      })
+    : astNode;
+
+  const transformedSchema = config.disableDescriptions ? buildASTSchema(transformedAST) : schema;
+
+  return {
+    schema: transformedSchema,
+    ast: transformedAST,
+  };
+}

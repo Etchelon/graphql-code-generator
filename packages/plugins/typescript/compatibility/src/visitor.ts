@@ -1,32 +1,32 @@
-import { CompatabilityPluginRawConfig } from './config';
+import { CompatibilityPluginRawConfig } from './config';
 import {
   BaseVisitor,
   DeclarationBlock,
   indent,
   getConfigValue,
-  buildScalars,
   ParsedConfig,
+  buildScalarsFromConfig,
 } from '@graphql-codegen/visitor-plugin-common';
 import { GraphQLSchema, OperationDefinitionNode, OperationTypeNode, FragmentDefinitionNode } from 'graphql';
 
 import { selectionSetToTypes, SelectionSetToObjectResult } from './selection-set-to-types';
-import { pascalCase } from 'pascal-case';
+import { pascalCase } from 'change-case-all';
 
-export interface CompatabilityPluginConfig extends ParsedConfig {
+export interface CompatibilityPluginConfig extends ParsedConfig {
   reactApollo: any;
   noNamespaces: boolean;
   strict: boolean;
   preResolveTypes: boolean;
 }
 
-export class CompatabilityPluginVisitor extends BaseVisitor<CompatabilityPluginRawConfig, CompatabilityPluginConfig> {
-  constructor(rawConfig: CompatabilityPluginRawConfig, private _schema: GraphQLSchema, options: { reactApollo: any }) {
+export class CompatibilityPluginVisitor extends BaseVisitor<CompatibilityPluginRawConfig, CompatibilityPluginConfig> {
+  constructor(rawConfig: CompatibilityPluginRawConfig, private _schema: GraphQLSchema, options: { reactApollo: any }) {
     super(rawConfig, {
       reactApollo: options.reactApollo,
       noNamespaces: getConfigValue<boolean>(rawConfig.noNamespaces, false),
       preResolveTypes: getConfigValue<boolean>(rawConfig.preResolveTypes, false),
       strict: getConfigValue<boolean>(rawConfig.strict, false),
-      scalars: buildScalars(_schema, rawConfig.scalars),
+      scalars: buildScalarsFromConfig(_schema, rawConfig),
     } as any);
   }
 

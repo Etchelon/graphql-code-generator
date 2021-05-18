@@ -34,7 +34,7 @@ export function normalizeOutputParam(config: Types.OutputConfig | Types.Configur
     return {
       documents: [],
       schema: [],
-      plugins: config,
+      plugins: isConfiguredOutput(config) ? config.plugins : config,
     };
   } else if (isConfiguredOutput(config)) {
     return config;
@@ -53,7 +53,7 @@ export function normalizeInstanceOrArray<T>(type: T | T[]): T[] {
   return [type];
 }
 
-export function normalizeConfig(config: Types.OutputConfig): Types.ConfiguredPlugin[] {
+export function normalizeConfig(config: Types.OutputConfig | Types.OutputConfig[]): Types.ConfiguredPlugin[] {
   if (typeof config === 'string') {
     return [{ [config]: {} }];
   } else if (Array.isArray(config)) {
@@ -124,8 +124,12 @@ export function isUsingTypes(document: DocumentNode, externalFragments: string[]
               } else if (parent.operation === 'subscription') {
                 return schema.getSubscriptionType().name;
               }
-            } else if (parent.kind === Kind.INLINE_FRAGMENT && parent.typeCondition) {
-              return parent.typeCondition.name.value;
+            } else if (parent.kind === Kind.INLINE_FRAGMENT) {
+              if (parent.typeCondition) {
+                return parent.typeCondition.name.value;
+              } else {
+                return typesStack[typesStack.length - 1].name;
+              }
             }
 
             return null;

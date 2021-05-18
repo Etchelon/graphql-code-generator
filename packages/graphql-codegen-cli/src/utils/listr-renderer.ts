@@ -1,7 +1,8 @@
 import chalk from 'chalk';
-import logUpdate from 'log-update';
-import indentString from 'indent-string';
+import { indentString } from './indentString';
 import logSymbol from 'log-symbols';
+import ansiEscapes from 'ansi-escapes';
+import wrapAnsi from 'wrap-ansi';
 import { stripIndent } from 'common-tags';
 import { ListrTask } from 'listr';
 import { DetailedError, isDetailedError } from '@graphql-codegen/plugin-helpers';
@@ -65,10 +66,10 @@ export class Renderer {
             return [msg, stack].filter(Boolean).join('\n');
           })
           .join('\n\n');
-        logUpdate(['', count, details, ''].join('\n\n'));
+        logUpdate.emit(['', count, details, ''].join('\n\n'));
       } else {
         const details = err.details ? err.details : '';
-        logUpdate(`${chalk.red.bold(`${indentString(err.message, 2)}`)}\n${details}\n${chalk.grey(err.stack)}`);
+        logUpdate.emit(`${chalk.red.bold(`${indentString(err.message, 2)}`)}\n${details}\n${chalk.grey(err.stack)}`);
       }
     }
 
@@ -77,3 +78,97 @@ export class Renderer {
     printLogs();
   }
 }
+
+const render = tasks => {
+  for (const task of tasks) {
+    task.subscribe(
+      event => {
+        if (event.type === 'SUBTASKS') {
+          render(task.subtasks);
+          return;
+        }
+
+        if (event.type === 'DATA') {
+          logUpdate.emit(chalk.dim(`${event.data}`));
+        }
+        logUpdate.done();
+      },
+      err => {
+        logUpdate.emit(err);
+        logUpdate.done();
+      }
+    );
+  }
+};
+
+export class ErrorRenderer {
+  private tasks: any;
+
+  constructor(tasks, _options) {
+    this.tasks = tasks;
+  }
+
+  render() {
+    render(this.tasks);
+  }
+
+  static get nonTTY() {
+    return true;
+  }
+
+  end() {}
+}
+
+class LogUpdate {
+  private stream = process.stdout;
+  // state
+  private previousLineCount = 0;
+  private previousOutput = '';
+  private previousWidth = this.getWidth();
+
+  emit(...args: string[]) {
+    let output = args.join(' ') + '\n';
+    const width = this.getWidth();
+
+    if (output === this.previousOutput && this.previousWidth === width) {
+      return;
+    }
+
+    this.previousOutput = output;
+    this.previousWidth = width;
+
+    output = wrapAnsi(output, width, {
+      trim: false,
+      hard: true,
+      wordWrap: false,
+    });
+
+    this.stream.write(ansiEscapes.eraseLines(this.previousLineCount) + output);
+    this.previousLineCount = output.split('\n').length;
+  }
+
+  clear() {
+    this.stream.write(ansiEscapes.eraseLines(this.previousLineCount));
+    this.previousOutput = '';
+    this.previousWidth = this.getWidth();
+    this.previousLineCount = 0;
+  }
+
+  done() {
+    this.previousOutput = '';
+    this.previousWidth = this.getWidth();
+    this.previousLineCount = 0;
+  }
+
+  private getWidth() {
+    const { columns } = this.stream;
+
+    if (!columns) {
+      return 80;
+    }
+
+    return columns;
+  }
+}
+
+const logUpdate = new LogUpdate();

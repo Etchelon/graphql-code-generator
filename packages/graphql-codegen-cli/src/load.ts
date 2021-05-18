@@ -2,23 +2,35 @@ import {
   loadSchema as loadSchemaToolkit,
   loadDocuments as loadDocumentsToolkit,
   UnnormalizedTypeDefPointer,
-} from '@graphql-toolkit/core';
+} from '@graphql-tools/load';
 import { DetailedError, Types } from '@graphql-codegen/plugin-helpers';
 import { GraphQLSchema } from 'graphql';
-import { CodeFileLoader } from '@graphql-toolkit/code-file-loader';
-import { GitLoader } from '@graphql-toolkit/git-loader';
-import { GithubLoader } from '@graphql-toolkit/github-loader';
-import { GraphQLFileLoader } from '@graphql-toolkit/graphql-file-loader';
-import { JsonFileLoader } from '@graphql-toolkit/json-file-loader';
-import { UrlLoader } from '@graphql-toolkit/url-loader';
-import { ApolloEngineLoader } from '@graphql-toolkit/apollo-engine-loader';
-import { PrismaLoader } from '@graphql-toolkit/prisma-loader';
+import { CodeFileLoader } from '@graphql-tools/code-file-loader';
+import { GitLoader } from '@graphql-tools/git-loader';
+import { GithubLoader } from '@graphql-tools/github-loader';
+import { GraphQLFileLoader } from '@graphql-tools/graphql-file-loader';
+import { JsonFileLoader } from '@graphql-tools/json-file-loader';
+import { UrlLoader } from '@graphql-tools/url-loader';
+import { ApolloEngineLoader } from '@graphql-tools/apollo-engine-loader';
+import { PrismaLoader } from '@graphql-tools/prisma-loader';
 import { join } from 'path';
 
-export const loadSchema = async (
+export const defaultSchemaLoadOptions = {
+  assumeValidSDL: true,
+  sort: true,
+  convertExtensions: true,
+  includeSources: true,
+};
+
+export const defaultDocumentsLoadOptions = {
+  sort: true,
+  skipGraphQLImport: true,
+};
+
+export async function loadSchema(
   schemaPointers: UnnormalizedTypeDefPointer,
   config: Types.Config
-): Promise<GraphQLSchema> => {
+): Promise<GraphQLSchema> {
   try {
     const loaders = [
       new CodeFileLoader(),
@@ -32,12 +44,10 @@ export const loadSchema = async (
     ];
 
     const schema = await loadSchemaToolkit(schemaPointers, {
-      assumeValidSDL: true,
+      ...defaultSchemaLoadOptions,
       loaders,
-      sort: true,
-      convertExtensions: true,
-      commentDescriptions: true,
       ...config,
+      ...config.config,
     });
     return schema;
   } catch (e) {
@@ -61,21 +71,21 @@ export const loadSchema = async (
       `
     );
   }
-};
+}
 
-export const loadDocuments = async (
+export async function loadDocuments(
   documentPointers: UnnormalizedTypeDefPointer | UnnormalizedTypeDefPointer[],
   config: Types.Config
-): Promise<Types.DocumentFile[]> => {
+): Promise<Types.DocumentFile[]> {
   const loaders = [new CodeFileLoader(), new GitLoader(), new GithubLoader(), new GraphQLFileLoader()];
 
   const loadedFromToolkit = await loadDocumentsToolkit(documentPointers, {
+    ...defaultDocumentsLoadOptions,
     ignore: Object.keys(config.generates).map(p => join(process.cwd(), p)),
     loaders,
-    sort: true,
-    skipGraphQLImport: true,
     ...config,
+    ...config.config,
   });
 
   return loadedFromToolkit;
-};
+}

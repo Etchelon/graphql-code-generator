@@ -7,52 +7,58 @@ import {
 import { GraphQLSchema, visit, concatAST, FragmentDefinitionNode, Kind } from 'graphql';
 import { TypeScriptDocumentNodesVisitor } from './visitor';
 
+/**
+ * @description This plugin generates TypeScript source (`.ts`) file from GraphQL files (`.graphql`).
+ */
 export interface TypeScriptDocumentNodesRawPluginConfig extends RawClientSideBasePluginConfig {
   /**
-   * @name namingConvention
-   * @type NamingConvention
-   * @default pascal-case#pascalCase
+   * @default change-case-all#pascalCase
    * @description Allow you to override the naming convention of the output.
    * You can either override all namings, or specify an object with specific custom naming convention per output.
    * The format of the converter must be a valid `module#method`.
    * Allowed values for specific output are: `typeNames`, `enumValues`.
    * You can also use "keep" to keep all GraphQL names as-is.
-   * Additionally you can set `transformUnderscore` to `true` if you want to override the default behaviour,
+   * Additionally you can set `transformUnderscore` to `true` if you want to override the default behavior,
    * which is to preserves underscores.
    *
-   * @example Override All Names
+   * Available case functions in `change-case-all` are `camelCase`, `capitalCase`, `constantCase`, `dotCase`, `headerCase`, `noCase`, `paramCase`, `pascalCase`, `pathCase`, `sentenceCase`, `snakeCase`, `lowerCase`, `localeLowerCase`, `lowerCaseFirst`, `spongeCase`, `titleCase`, `upperCase`, `localeUpperCase` and `upperCaseFirst`
+   * [See more](https://github.com/btxtiger/change-case-all)
+   *
+   * @exampleMarkdown
+   * ## Override All Names
    * ```yml
    * config:
-   *   namingConvention: lower-case#lowerCase
+   *   namingConvention: change-case-all#lowerCase
    * ```
-   * @example Upper-case enum values
+   *
+   * ## Upper-case enum values
    * ```yml
    * config:
    *   namingConvention:
-   *     typeNames: pascal-case#pascalCase
-   *     enumValues: upper-case#upperCase
+   *     typeNames: change-case-all#pascalCase
+   *     enumValues: change-case-all#upperCase
    * ```
-   * @example Keep
+   *
+   * ## Keep name as-is
    * ```yml
    * config:
    *   namingConvention: keep
    * ```
-   * @example Remove Underscores
+   *
+   * ## Remove Underscores
    * ```yml
    * config:
    *   namingConvention:
-   *     typeNames: pascal-case#pascalCase
+   *     typeNames: change-case-all#pascalCase
    *     transformUnderscore: true
    * ```
    */
   namingConvention?: NamingConvention;
   /**
-   * @name namePrefix
-   * @type string
-   * @default ''
+   * @default ""
    * @description Adds prefix to the name
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    *  documents: src/api/user-service/queries.graphql
    *  generates:
@@ -65,12 +71,10 @@ export interface TypeScriptDocumentNodesRawPluginConfig extends RawClientSideBas
    */
   namePrefix?: string;
   /**
-   * @name nameSuffix
-   * @type string
-   * @default ''
+   * @default ""
    * @description Adds suffix to the name
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    *  documents: src/api/user-service/queries.graphql
    *  generates:
@@ -82,7 +86,15 @@ export interface TypeScriptDocumentNodesRawPluginConfig extends RawClientSideBas
    * ```
    */
   nameSuffix?: string;
+  /**
+   * @default ""
+   * @description Adds prefix to the fragment variable
+   */
   fragmentPrefix?: string;
+  /**
+   * @default ""
+   * @description Adds suffix to the fragment variable
+   */
   fragmentSuffix?: string;
 }
 

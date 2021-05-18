@@ -56,18 +56,132 @@ describe('React Apollo', () => {
     output: Types.PluginOutput,
     testSchema: GraphQLSchema,
     documents: Types.DocumentFile[],
-    config: any,
-    playground = false
+    config: any
   ) => {
     const tsOutput = await tsPlugin(testSchema, documents, config, { outputFile: '' });
     const tsDocumentsOutput = await tsDocumentsPlugin(testSchema, documents, config, { outputFile: '' });
     const merged = mergeOutputs([tsOutput, tsDocumentsOutput, output]);
-    validateTs(merged, undefined, true, false, playground);
+    validateTs(merged, undefined, true, false, [`Cannot find namespace 'Types'.`]);
 
     return merged;
   };
 
+  describe('Apollo Client v2 Backward Compatible', () => {
+    it('Should generate output correctly and backward compatible output', async () => {
+      const documents = parse(/* GraphQL */ `
+        query Feed {
+          feed {
+            id
+            commentCount
+            repository {
+              full_name
+              html_url
+              owner {
+                avatar_url
+              }
+            }
+          }
+        }
+
+        mutation SubmitRepository($name: String) {
+          submitRepository(repoFullName: $name) {
+            id
+          }
+        }
+      `);
+      const docs = [{ location: '', document: documents }];
+
+      const content = (await plugin(
+        schema,
+        docs,
+        { reactApolloVersion: 2, withComponent: true, withHOC: true },
+        {
+          outputFile: 'graphql.tsx',
+        }
+      )) as Types.ComplexPluginOutput;
+
+      // To make sure we have the gql tag imported
+      expect(content.prepend).toContain(`import gql from 'graphql-tag';`);
+      // To make sure we have React for the Component  and the rest of the grouped namespaces
+      expect(content.prepend).toContain(`import * as React from 'react';`);
+      expect(content.prepend).toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
+      expect(content.prepend).toContain(`import * as ApolloReactComponents from '@apollo/react-components';`);
+      expect(content.prepend).toContain(`import * as ApolloReactHoc from '@apollo/react-hoc';`);
+      expect(content.prepend).toContain(`import * as ApolloReactHooks from '@apollo/react-hooks';`);
+      // To make sure the default gql is used correctly, without namespace prefix
+      expect(content.content).toContain('export const FeedDocument = gql`\n');
+      // To make sure we don't have apollo v3 related code
+      expect(content.content).not.toContain('Apollo.');
+      expect(content.content).toContain('ApolloReactCommon.');
+      expect(content.content).toContain('ApolloReactHoc.');
+      expect(content.content).toContain('ApolloReactComponents.');
+      expect(content.content).toContain('ApolloReactHooks.');
+
+      await validateTypeScript(content, schema, docs, {});
+    });
+  });
+
   describe('Issues', () => {
+    it.each([
+      {
+        document: `query Feed { feed { ...Feed } } `,
+        optionalBaseOptions: true,
+      },
+      {
+        document: `mutation Feed { feed { ...Feed } } `,
+        optionalBaseOptions: true,
+      },
+      {
+        document: `query Feed($something: Boolean) { feed { ...Feed } } `,
+        optionalBaseOptions: true,
+      },
+      {
+        document: `query Feed($something: Boolean!) { feed { ...Feed } } `,
+        optionalBaseOptions: false,
+      },
+      {
+        document: `mutation Feed($something: Boolean!) { feed { ...Feed } } `,
+        optionalBaseOptions: true,
+      },
+      {
+        document: `query Feed($something: Boolean!, $somethingElse: Boolean!) { feed { ...Feed } } `,
+        optionalBaseOptions: false,
+      },
+      {
+        document: `query Feed($something: Boolean, $somethingElse: Boolean!) { feed { ...Feed } } `,
+        optionalBaseOptions: false,
+      },
+      {
+        document: `query Feed($something: Boolean! = true) { feed { ...Feed } } `,
+        optionalBaseOptions: true,
+      },
+      {
+        document: `query Feed($something: Boolean! = true, $somethingElse: Boolean) { feed { ...Feed } } `,
+        optionalBaseOptions: true,
+      },
+    ])(
+      'Issue #4887 - baseOptions of generated hooks should not be optional when there are required variables',
+      async ({ document, optionalBaseOptions }) => {
+        const docs = [
+          {
+            location: '',
+            document: parse(document),
+          },
+        ];
+
+        const result = (await plugin(
+          schema,
+          docs,
+          {},
+          {
+            outputFile: 'graphql.tsx',
+          }
+        )) as Types.ComplexPluginOutput;
+
+        expect(result.content).toContain(`(baseOptions${optionalBaseOptions ? '?' : ''}: Apollo.`);
+      }
+    );
+
     it('Issue #3612 - Missing fragments spread when fragment name is same as operation?', async () => {
       const docs = [
         {
@@ -145,7 +259,7 @@ describe('React Apollo', () => {
       expect(mergeOutputs([output])).toMatchSnapshot();
 
       expect(output).toContain(
-        `export type Get_SomethingQueryResult = ApolloReactCommon.QueryResult<Types.Get_SomethingQuery, Types.Get_SomethingQueryVariables>;`
+        `export type Get_SomethingQueryResult = Apollo.QueryResult<Types.Get_SomethingQuery, Types.Get_SomethingQueryVariables>;`
       );
     });
 
@@ -179,7 +293,7 @@ describe('React Apollo', () => {
       expect(mergeOutputs([output])).toMatchSnapshot();
 
       expect(output).toContain(
-        `export type Get_SomethingQueryResult = ApolloReactCommon.QueryResult<GQLGet_SomethingQuery, GQLGet_SomethingQueryVariables>;`
+        `export type Get_SomethingQueryResult = Apollo.QueryResult<GQLGet_SomethingQuery, GQLGet_SomethingQueryVariables>;`
       );
     });
 
@@ -203,7 +317,7 @@ describe('React Apollo', () => {
         withHOC: false,
         skipTypename: true,
         namingConvention: {
-          typeNames: 'pascal-case#pascalCase',
+          typeNames: 'change-case-all#pascalCase',
           enumValues: 'keep',
           transformUnderscore: true,
         },
@@ -264,16 +378,19 @@ describe('React Apollo', () => {
       const content = (await plugin(
         schema,
         docs,
-        {},
+        { withComponent: true },
         {
           outputFile: 'graphql.tsx',
         }
       )) as Types.ComplexPluginOutput;
 
-      expect(content.prepend).toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
-      expect(content.prepend).toContain(`import * as ApolloReactComponents from '@apollo/react-components';`);
+      expect(content.prepend).toContain(`import * as Apollo from '@apollo/client';`);
+      expect(content.prepend).toContain(`import { gql } from '@apollo/client';`);
+      expect(content.prepend).toContain(`import * as ApolloReactComponents from '@apollo/client/react/components';`);
       expect(content.prepend).toContain(`import * as React from 'react';`);
-      expect(content.prepend).toContain(`import gql from 'graphql-tag';`);
+
+      // To make sure all imports are unified correctly under Apollo namespaced import
+      expect(content.content).toContain(` gql\``);
       await validateTypeScript(content, schema, docs, {});
     });
 
@@ -328,7 +445,7 @@ describe('React Apollo', () => {
 
       expect(
         ((await plugin(schema, [{ location: 'test-file.ts', document: ast }], {}, { outputFile: '' })) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<NotificationsQueryQuery, NotificationsQueryQueryVariables>;');
+      ).toContain('Apollo.QueryResult<NotificationsQueryQuery, NotificationsQueryQueryVariables>;');
       expect(
         ((await plugin(
           schema,
@@ -336,7 +453,7 @@ describe('React Apollo', () => {
           { dedupeOperationSuffix: false },
           { outputFile: '' }
         )) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<NotificationsQueryQuery, NotificationsQueryQueryVariables>');
+      ).toContain('Apollo.QueryResult<NotificationsQueryQuery, NotificationsQueryQueryVariables>');
       expect(
         ((await plugin(
           schema,
@@ -344,7 +461,7 @@ describe('React Apollo', () => {
           { dedupeOperationSuffix: true },
           { outputFile: '' }
         )) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
+      ).toContain('Apollo.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
       expect(
         ((await plugin(
           schema,
@@ -352,7 +469,7 @@ describe('React Apollo', () => {
           { dedupeOperationSuffix: true },
           { outputFile: '' }
         )) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
+      ).toContain('Apollo.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
       expect(
         ((await plugin(
           schema,
@@ -360,7 +477,7 @@ describe('React Apollo', () => {
           { dedupeOperationSuffix: false },
           { outputFile: '' }
         )) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
+      ).toContain('Apollo.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
     });
 
     it(`tests for omitOperationSuffix`, async () => {
@@ -381,7 +498,7 @@ describe('React Apollo', () => {
 
       expect(
         ((await plugin(schema, [{ location: 'test-file.ts', document: ast }], {}, { outputFile: '' })) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<NotificationsQueryQuery, NotificationsQueryQueryVariables>;');
+      ).toContain('Apollo.QueryResult<NotificationsQueryQuery, NotificationsQueryQueryVariables>;');
       expect(
         ((await plugin(
           schema,
@@ -389,7 +506,7 @@ describe('React Apollo', () => {
           { omitOperationSuffix: false },
           { outputFile: '' }
         )) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<NotificationsQueryQuery, NotificationsQueryQueryVariables>');
+      ).toContain('Apollo.QueryResult<NotificationsQueryQuery, NotificationsQueryQueryVariables>');
       expect(
         ((await plugin(
           schema,
@@ -397,7 +514,7 @@ describe('React Apollo', () => {
           { omitOperationSuffix: true },
           { outputFile: '' }
         )) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
+      ).toContain('Apollo.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
       expect(
         ((await plugin(
           schema,
@@ -405,7 +522,7 @@ describe('React Apollo', () => {
           { omitOperationSuffix: true },
           { outputFile: '' }
         )) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<Notifications, NotificationsVariables>');
+      ).toContain('Apollo.QueryResult<Notifications, NotificationsVariables>');
       expect(
         ((await plugin(
           schema,
@@ -413,21 +530,21 @@ describe('React Apollo', () => {
           { omitOperationSuffix: false },
           { outputFile: '' }
         )) as any).content
-      ).toContain('ApolloReactCommon.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
+      ).toContain('Apollo.QueryResult<NotificationsQuery, NotificationsQueryVariables>');
     });
 
-    it('should import ApolloReactHooks dependencies', async () => {
+    it('should import Apollo namespaced import correctly', async () => {
       const docs = [{ location: '', document: basicDoc }];
       const content = (await plugin(
         schema,
         docs,
-        { withHooks: true },
+        {},
         {
           outputFile: 'graphql.tsx',
         }
       )) as Types.ComplexPluginOutput;
 
-      expect(content.prepend).toContain(`import * as ApolloReactHooks from '@apollo/react-hooks';`);
+      expect(content.prepend).toContain(`import * as Apollo from '@apollo/client';`);
       await validateTypeScript(content, schema, docs, {});
     });
 
@@ -436,7 +553,7 @@ describe('React Apollo', () => {
       const content = (await plugin(
         schema,
         docs,
-        { withHooks: true, apolloReactHooksImportFrom: 'react-apollo-hooks' },
+        { apolloReactHooksImportFrom: 'react-apollo-hooks' },
         {
           outputFile: 'graphql.tsx',
         }
@@ -451,7 +568,7 @@ describe('React Apollo', () => {
       const content = (await plugin(
         schema,
         docs,
-        { withHooks: true, apolloReactCommonImportFrom: 'custom-apollo-react-common' },
+        { apolloReactCommonImportFrom: 'custom-apollo-react-common' },
         {
           outputFile: 'graphql.tsx',
         }
@@ -461,18 +578,12 @@ describe('React Apollo', () => {
       await validateTypeScript(content, schema, docs, {});
     });
 
-    it('should skip import React and ApolloReactComponents if only hooks are used', async () => {
+    it('should skip import React and ApolloReactComponents by default (only hooks)', async () => {
       const docs = [{ location: '', document: basicDoc }];
       const content = (await plugin(
         schema,
         docs,
-        {
-          withHooks: true,
-          withHOC: false,
-          withComponent: false,
-          withMutationFn: false,
-          withResultType: false,
-        },
+        {},
         {
           outputFile: 'graphql.tsx',
         }
@@ -494,7 +605,7 @@ describe('React Apollo', () => {
               full_name
             }
 
-            query {
+            query test {
               feed {
                 id
               }
@@ -502,7 +613,7 @@ describe('React Apollo', () => {
           `),
         },
       ];
-      const result = (await plugin(schema, docs, {}, { outputFile: '' })) as Types.ComplexPluginOutput;
+      const result = await plugin(schema, docs, {}, { outputFile: '' });
 
       expect(result.content).toBeSimilarStringTo(`
       export const MyFragmentFragmentDoc = gql\`
@@ -681,7 +792,7 @@ query MyFeed {
       )) as Types.ComplexPluginOutput;
 
       expect(content.content).toBeSimilarStringTo(`
-          export const TestDocument =  gql\`
+          export const TestDocument = gql\`
           query test {
             feed {
               id
@@ -747,7 +858,7 @@ query MyFeed {
       )) as Types.ComplexPluginOutput;
 
       expect(content.content).toBeSimilarStringTo(`
-          export const TestDocument =  gql\`
+          export const TestDocument = gql\`
             mutation Test {
               submitRepository(repoFullName: "\\\\"REPONAME\\\\"") {
                 createdAt
@@ -764,7 +875,7 @@ query MyFeed {
       const content = (await plugin(
         schema,
         docs,
-        {},
+        { withComponent: true },
         {
           outputFile: 'graphql.tsx',
         }
@@ -788,7 +899,7 @@ query MyFeed {
       const content = (await plugin(
         schema,
         docs,
-        { componentSuffix: 'Element' },
+        { componentSuffix: 'Element', withComponent: true },
         {
           outputFile: 'graphql.tsx',
         }
@@ -806,12 +917,12 @@ query MyFeed {
       await validateTypeScript(content, schema, docs, { componentSuffix: 'Element' });
     });
 
-    it('should not generate Component', async () => {
+    it('should not generate Component by default', async () => {
       const docs = [{ location: '', document: basicDoc }];
       const content = (await plugin(
         schema,
         docs,
-        { withComponent: false },
+        {},
         {
           outputFile: 'graphql.tsx',
         }
@@ -840,7 +951,7 @@ query MyFeed {
       const content = (await plugin(
         schema,
         docs,
-        {},
+        { withComponent: true },
         {
           outputFile: 'graphql.tsx',
         }
@@ -878,7 +989,7 @@ query MyFeed {
       const content = (await plugin(
         schema,
         docs,
-        {},
+        { withComponent: true },
         {
           outputFile: 'graphql.tsx',
         }
@@ -910,59 +1021,55 @@ query MyFeed {
   });
 
   describe('HOC', () => {
-    it('should generate HOCs', async () => {
+    it('should generate HOCs correctly', async () => {
+      const docs = [{ location: '', document: basicDoc }];
+      const config = { withHOC: true };
+      const content = (await plugin(schema, docs, config, {
+        outputFile: 'graphql.tsx',
+      })) as Types.ComplexPluginOutput;
+
+      expect(content.content).toBeSimilarStringTo(
+        `export type TestProps<TChildProps = {}, TDataName extends string = 'data'> = {
+          [key in TDataName]: ApolloReactHoc.DataValue<TestQuery, TestQueryVariables>
+        } & TChildProps;`
+      );
+
+      expect(content.content)
+        .toBeSimilarStringTo(`export function withTest<TProps, TChildProps = {}, TDataName extends string = 'data'>(operationOptions?: ApolloReactHoc.OperationOption<
+      TProps,
+      TestQuery,
+      TestQueryVariables,
+      TestProps<TChildProps, TDataName>>) {
+        return ApolloReactHoc.withQuery<TProps, TestQuery, TestQueryVariables, TestProps<TChildProps, TDataName>>(TestDocument, {
+          alias: 'test',
+          ...operationOptions
+        });
+    }`);
+      await validateTypeScript(content, schema, docs, config);
+    });
+
+    it('should generate HOC props with correct operation result type name', async () => {
+      const docs = [{ location: '', document: basicDoc }];
+      const config = { operationResultSuffix: 'Response', withHOC: true };
+      const content = (await plugin(schema, docs, config, {
+        outputFile: 'graphql.tsx',
+      })) as Types.ComplexPluginOutput;
+
+      expect(content.content).toBeSimilarStringTo(
+        `export type TestProps<TChildProps = {}, TDataName extends string = 'data'> = {
+          [key in TDataName]: ApolloReactHoc.DataValue<TestQueryResponse, TestQueryVariables>
+        } & TChildProps;`
+      );
+
+      await validateTypeScript(content, schema, docs, config);
+    });
+
+    it('should not generate HOCs by default', async () => {
       const docs = [{ location: '', document: basicDoc }];
       const content = (await plugin(
         schema,
         docs,
         {},
-        {
-          outputFile: 'graphql.tsx',
-        }
-      )) as Types.ComplexPluginOutput;
-
-      expect(content.content).toBeSimilarStringTo(
-        `export type TestProps<TChildProps = {}> = ApolloReactHoc.DataProps<TestQuery, TestQueryVariables> & TChildProps;`
-      );
-
-      expect(content.content)
-        .toBeSimilarStringTo(`export function withTest<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
-  TProps,
-  TestQuery,
-  TestQueryVariables,
-  TestProps<TChildProps>>) {
-    return ApolloReactHoc.withQuery<TProps, TestQuery, TestQueryVariables, TestProps<TChildProps>>(TestDocument, {
-      alias: 'test',
-      ...operationOptions
-    });
-}`);
-      await validateTypeScript(content, schema, docs, {});
-    });
-
-    it('should generate HOC props with correct operation result type name', async () => {
-      const docs = [{ location: '', document: basicDoc }];
-      const content = (await plugin(
-        schema,
-        docs,
-        { operationResultSuffix: 'Response' },
-        {
-          outputFile: 'graphql.tsx',
-        }
-      )) as Types.ComplexPluginOutput;
-
-      expect(content.content).toBeSimilarStringTo(
-        `export type TestProps<TChildProps = {}> = ApolloReactHoc.DataProps<TestQueryResponse, TestQueryVariables> & TChildProps;`
-      );
-
-      await validateTypeScript(content, schema, docs, {});
-    });
-
-    it('should not generate HOCs', async () => {
-      const docs = [{ location: '', document: basicDoc }];
-      const content = (await plugin(
-        schema,
-        docs,
-        { withHOC: false },
         {
           outputFile: 'graphql.tsx',
         }
@@ -978,7 +1085,7 @@ query MyFeed {
       const content = (await plugin(
         schema,
         docs,
-        { typesPrefix: 'I' },
+        { typesPrefix: 'I', withHOC: true },
         {
           outputFile: 'graphql.tsx',
         }
@@ -987,6 +1094,7 @@ query MyFeed {
       expect(content.content).toContain(`export type ITestProps`);
       expect(content.content).toContain(`export function withTest`);
     });
+
     it('should generate mutation function signature correctly', async () => {
       const docs = [
         {
@@ -1010,14 +1118,14 @@ query MyFeed {
       )) as Types.ComplexPluginOutput;
 
       expect(content.content).toContain(
-        `export type SubmitCommentMutationFn = ApolloReactCommon.MutationFunction<SubmitCommentMutation, SubmitCommentMutationVariables>;`
+        `export type SubmitCommentMutationFn = Apollo.MutationFunction<SubmitCommentMutation, SubmitCommentMutationVariables>;`
       );
       await validateTypeScript(content, schema, docs, {});
     });
   });
 
   describe('Hooks', () => {
-    it('Should generate hooks for query and mutation', async () => {
+    it('Should generate hooks for query and mutation by default', async () => {
       const documents = parse(/* GraphQL */ `
         query feed {
           feed {
@@ -1044,20 +1152,22 @@ query MyFeed {
       const content = (await plugin(
         schema,
         docs,
-        { withHooks: true, withComponent: false, withHOC: false },
+        {},
         {
           outputFile: 'graphql.tsx',
         }
       )) as Types.ComplexPluginOutput;
 
       expect(content.content).toBeSimilarStringTo(`
-export function useFeedQuery(baseOptions?: ApolloReactHooks.QueryHookOptions<FeedQuery, FeedQueryVariables>) {
-  return ApolloReactHooks.useQuery<FeedQuery, FeedQueryVariables>(FeedDocument, baseOptions);
+export function useFeedQuery(baseOptions?: Apollo.QueryHookOptions<FeedQuery, FeedQueryVariables>) {
+  const options = {...defaultOptions, ...baseOptions}
+  return Apollo.useQuery<FeedQuery, FeedQueryVariables>(FeedDocument, options);
 }`);
 
       expect(content.content).toBeSimilarStringTo(`
-export function useSubmitRepositoryMutation(baseOptions?: ApolloReactHooks.MutationHookOptions<SubmitRepositoryMutation, SubmitRepositoryMutationVariables>) {
-  return ApolloReactHooks.useMutation<SubmitRepositoryMutation, SubmitRepositoryMutationVariables>(SubmitRepositoryDocument, baseOptions);
+export function useSubmitRepositoryMutation(baseOptions?: Apollo.MutationHookOptions<SubmitRepositoryMutation, SubmitRepositoryMutationVariables>) {
+  const options = {...defaultOptions, ...baseOptions}
+  return Apollo.useMutation<SubmitRepositoryMutation, SubmitRepositoryMutationVariables>(SubmitRepositoryDocument, options);
 }`);
       await validateTypeScript(content, schema, docs, {});
     });
@@ -1085,26 +1195,24 @@ export function useSubmitRepositoryMutation(baseOptions?: ApolloReactHooks.Mutat
         }
       `);
       const docs = [{ location: '', document: documents }];
+      const config = { withHooks: true, withComponent: false, withHOC: false, dedupeOperationSuffix: true };
 
-      const content = (await plugin(
-        schema,
-        docs,
-        { withHooks: true, withComponent: false, withHOC: false, dedupeOperationSuffix: true },
-        {
-          outputFile: 'graphql.tsx',
-        }
-      )) as Types.ComplexPluginOutput;
+      const content = (await plugin(schema, docs, config, {
+        outputFile: 'graphql.tsx',
+      })) as Types.ComplexPluginOutput;
 
       expect(content.content).toBeSimilarStringTo(`
-export function useFeedQuery(baseOptions?: ApolloReactHooks.QueryHookOptions<FeedQuery, FeedQueryVariables>) {
-  return ApolloReactHooks.useQuery<FeedQuery, FeedQueryVariables>(FeedQueryDocument, baseOptions);
-}`);
+      export function useFeedQuery(baseOptions?: Apollo.QueryHookOptions<FeedQuery, FeedQueryVariables>) {
+       const options = {...defaultOptions, ...baseOptions}
+      return Apollo.useQuery<FeedQuery, FeedQueryVariables>(FeedQueryDocument, options);
+    }`);
 
       expect(content.content).toBeSimilarStringTo(`
-export function useSubmitRepositoryMutation(baseOptions?: ApolloReactHooks.MutationHookOptions<SubmitRepositoryMutation, SubmitRepositoryMutationVariables>) {
-  return ApolloReactHooks.useMutation<SubmitRepositoryMutation, SubmitRepositoryMutationVariables>(SubmitRepositoryMutationDocument, baseOptions);
-}`);
-      await validateTypeScript(content, schema, docs, {});
+      export function useSubmitRepositoryMutation(baseOptions?: Apollo.MutationHookOptions<SubmitRepositoryMutation, SubmitRepositoryMutationVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+      return Apollo.useMutation<SubmitRepositoryMutation, SubmitRepositoryMutationVariables>(SubmitRepositoryMutationDocument, options);
+    }`);
+      await validateTypeScript(content, schema, docs, config);
     });
 
     it('Should not generate hooks for query and mutation', async () => {
@@ -1147,8 +1255,9 @@ export function useSubmitRepositoryMutation(baseOptions?: ApolloReactHooks.Mutat
       )) as Types.ComplexPluginOutput;
 
       expect(content.content).toBeSimilarStringTo(`
-export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.SubscriptionHookOptions<ListenToCommentsSubscription, ListenToCommentsSubscriptionVariables>) {
-  return ApolloReactHooks.useSubscription<ListenToCommentsSubscription, ListenToCommentsSubscriptionVariables>(ListenToCommentsDocument, baseOptions);
+export function useListenToCommentsSubscription(baseOptions?: Apollo.SubscriptionHookOptions<ListenToCommentsSubscription, ListenToCommentsSubscriptionVariables>) {
+  const options = {...defaultOptions, ...baseOptions}
+  return Apollo.useSubscription<ListenToCommentsSubscription, ListenToCommentsSubscriptionVariables>(ListenToCommentsDocument, options);
 }`);
       await validateTypeScript(content, schema, docs, {});
     });
@@ -1218,7 +1327,7 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
  * __useFeedQuery__
  *
  * To run a query within a React component, call \`useFeedQuery\` and pass it any options that fit your needs.
- * When your component renders, \`useFeedQuery\` returns an object from Apollo Client that contains loading, error, and data properties 
+ * When your component renders, \`useFeedQuery\` returns an object from Apollo Client that contains loading, error, and data properties
  * you can use to render your UI.
  *
  * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
@@ -1355,9 +1464,9 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
         }
       )) as Types.ComplexPluginOutput;
 
-      expect(content.prepend).toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
+      expect(content.prepend).toContain(`import * as Apollo from '@apollo/client';`);
       expect(content.content).toContain(
-        `export type TestQueryResult = ApolloReactCommon.QueryResult<TestQuery, TestQueryVariables>;`
+        `export type TestQueryResult = Apollo.QueryResult<TestQuery, TestQueryVariables>;`
       );
       await validateTypeScript(content, schema, docs, {});
     });
@@ -1375,7 +1484,7 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).not.toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
       expect(content.content).not.toContain(
-        `export type TestQueryResult = ApolloReactCommon.QueryResult<TestQuery, TestQueryVariables>;`
+        `export type TestQueryResult = Apollo.QueryResult<TestQuery, TestQueryVariables>;`
       );
       await validateTypeScript(content, schema, docs, {});
     });
@@ -1392,10 +1501,8 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
         }
       )) as Types.ComplexPluginOutput;
 
-      expect(content.prepend).toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
-      expect(content.content).toContain(
-        `export type TestMutationResult = ApolloReactCommon.MutationResult<TestMutation>;`
-      );
+      expect(content.prepend).toContain(`import * as Apollo from '@apollo/client';`);
+      expect(content.content).toContain(`export type TestMutationResult = Apollo.MutationResult<TestMutation>;`);
       await validateTypeScript(content, schema, docs, {});
     });
 
@@ -1411,10 +1518,8 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
         }
       )) as Types.ComplexPluginOutput;
 
-      expect(content.prepend).not.toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
-      expect(content.content).not.toContain(
-        `export type TestMutationResult = ApolloReactCommon.MutationResult<TestMutation>;`
-      );
+      expect(content.prepend).not.toContain(`import * as Apollo from '@apollo/react-common';`);
+      expect(content.content).not.toContain(`export type TestMutationResult = Apollo.MutationResult<TestMutation>;`);
       await validateTypeScript(content, schema, docs, {});
     });
 
@@ -1430,9 +1535,9 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
         }
       )) as Types.ComplexPluginOutput;
 
-      expect(content.prepend).toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
+      expect(content.prepend).toContain(`import * as Apollo from '@apollo/client';`);
       expect(content.content).toContain(
-        `export type TestSubscriptionResult = ApolloReactCommon.SubscriptionResult<TestSubscription>;`
+        `export type TestSubscriptionResult = Apollo.SubscriptionResult<TestSubscription>;`
       );
       await validateTypeScript(content, schema, docs, {});
     });
@@ -1449,9 +1554,9 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
         }
       )) as Types.ComplexPluginOutput;
 
-      expect(content.prepend).not.toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
+      expect(content.prepend).not.toContain(`import * as Apollo from '@apollo/react-common';`);
       expect(content.content).not.toContain(
-        `export type TestSubscriptionResult = ApolloReactCommon.SubscriptionResult<TestSubscription>;`
+        `export type TestSubscriptionResult = Apollo.SubscriptionResult<TestSubscription>;`
       );
       await validateTypeScript(content, schema, docs, {});
     });
@@ -1483,9 +1588,10 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
       )) as Types.ComplexPluginOutput;
 
       expect(content.content).toBeSimilarStringTo(`
-  export function useFeedLazyQuery(baseOptions?: ApolloReactHooks.LazyQueryHookOptions<FeedQuery, FeedQueryVariables>) {
-    return ApolloReactHooks.useLazyQuery<FeedQuery, FeedQueryVariables>(FeedDocument, baseOptions);
-  }`);
+      export function useFeedLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<FeedQuery, FeedQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useLazyQuery<FeedQuery, FeedQueryVariables>(FeedDocument, options);
+      }`);
       await validateTypeScript(content, schema, docs, {});
     });
   });
@@ -1512,9 +1618,9 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
         }
       )) as Types.ComplexPluginOutput;
 
-      expect(content.prepend).toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
+      expect(content.prepend).toContain(`import * as Apollo from '@apollo/client';`);
       expect(content.content).toContain(
-        `export type TestMutationOptions = ApolloReactCommon.BaseMutationOptions<TestMutation, TestMutationVariables>;`
+        `export type TestMutationOptions = Apollo.BaseMutationOptions<TestMutation, TestMutationVariables>;`
       );
       await validateTypeScript(content, schema, docs, {});
     });
@@ -1533,7 +1639,7 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).not.toContain(`import * as ApolloReactCommon from '@apollo/react-common';`);
       expect(content.content).not.toContain(
-        `export type TestMutationOptions = ApolloReactCommon.BaseMutationOptions<TestMutation, TestMutationVariables>;`
+        `export type TestMutationOptions = Apollo.BaseMutationOptions<TestMutation, TestMutationVariables>;`
       );
       await validateTypeScript(content, schema, docs, {});
     });
@@ -1550,7 +1656,7 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
       )) as Types.ComplexPluginOutput;
 
       expect(content.prepend).not.toContain(`import * as ApolloReactCommon from 'react-apollo';`);
-      expect(content.content).not.toContain(`ApolloReactCommon.BaseMutationOptions`);
+      expect(content.content).not.toContain(`Apollo.BaseMutationOptions`);
       await validateTypeScript(content, schema, docs, {});
     });
 
@@ -1566,7 +1672,7 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
       )) as Types.ComplexPluginOutput;
 
       expect(content.prepend).not.toContain(`import * as ApolloReactCommon from 'react-apollo';`);
-      expect(content.content).not.toContain(`ApolloReactCommon.BaseMutationOptions`);
+      expect(content.content).not.toContain(`Apollo.BaseMutationOptions`);
       await validateTypeScript(content, schema, docs, {});
     });
 
@@ -1583,7 +1689,7 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
       )) as Types.ComplexPluginOutput;
 
       expect(content.prepend).not.toContain(`import * as ApolloReactCommon from 'react-apollo';`);
-      expect(content.content).not.toContain(`ApolloReactCommon.BaseMutationOptions`);
+      expect(content.content).not.toContain(`Apollo.BaseMutationOptions`);
       await validateTypeScript(content, schema, docs, {});
     });
 
@@ -1600,7 +1706,7 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
       )) as Types.ComplexPluginOutput;
 
       expect(content.prepend).not.toContain(`import * as ApolloReactCommon from 'react-apollo';`);
-      expect(content.content).not.toContain(`ApolloReactCommon.BaseMutationOptions`);
+      expect(content.content).not.toContain(`Apollo.BaseMutationOptions`);
       await validateTypeScript(content, schema, docs, {});
     });
   });
@@ -1904,13 +2010,15 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from 'path/to/documents';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestQuery(baseOptions?: ApolloReactHooks.QueryHookOptions<TestQuery, TestQueryVariables>) {
-        return ApolloReactHooks.useQuery<TestQuery, TestQueryVariables>(Operations.test, baseOptions);
+      export function useTestQuery(baseOptions?: Apollo.QueryHookOptions<TestQuery, TestQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<TestQuery, TestQueryVariables>(Operations.test, options);
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestLazyQuery(baseOptions?: ApolloReactHooks.LazyQueryHookOptions<TestQuery, TestQueryVariables>) {
-        return ApolloReactHooks.useLazyQuery<TestQuery, TestQueryVariables>(Operations.test, baseOptions);
+      export function useTestLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TestQuery, TestQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useLazyQuery<TestQuery, TestQueryVariables>(Operations.test, options);
       }
       `);
       await validateTypeScript(content, schema, docs, {});
@@ -1933,16 +2041,16 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from 'path/to/documents';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTest<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTest<TProps, TChildProps = {}, TDataName extends string = 'data'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestQuery,
         TestQueryVariables,
-        TestProps<TChildProps>>) {
-          return ApolloReactHoc.withQuery<TProps, TestQuery, TestQueryVariables, TestProps<TChildProps>>(Operations.test, {
+        TestProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withQuery<TProps, TestQuery, TestQueryVariables, TestProps<TChildProps, TDataName>>(Operations.test, {
             alias: 'test',
             ...operationOptions
           });
-      }
+      };
       `);
       await validateTypeScript(content, schema, docs, {});
     });
@@ -1987,8 +2095,9 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from 'path/to/documents';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestMutation(baseOptions?: ApolloReactHooks.MutationHookOptions<TestMutation, TestMutationVariables>) {
-        return ApolloReactHooks.useMutation<TestMutation, TestMutationVariables>(Operations.test, baseOptions);
+      export function useTestMutation(baseOptions?: Apollo.MutationHookOptions<TestMutation, TestMutationVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useMutation<TestMutation, TestMutationVariables>(Operations.test, options);
       }
       `);
       await validateTypeScript(content, schema, docs, {});
@@ -2011,12 +2120,12 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from 'path/to/documents';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTest<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTest<TProps, TChildProps = {}, TDataName extends string = 'mutate'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestMutation,
         TestMutationVariables,
-        TestProps<TChildProps>>) {
-          return ApolloReactHoc.withMutation<TProps, TestMutation, TestMutationVariables, TestProps<TChildProps>>(Operations.test, {
+        TestProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withMutation<TProps, TestMutation, TestMutationVariables, TestProps<TChildProps, TDataName>>(Operations.test, {
             alias: 'test',
             ...operationOptions
           });
@@ -2065,8 +2174,9 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from 'path/to/documents';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestSubscription(baseOptions?: ApolloReactHooks.SubscriptionHookOptions<TestSubscription, TestSubscriptionVariables>) {
-        return ApolloReactHooks.useSubscription<TestSubscription, TestSubscriptionVariables>(Operations.test, baseOptions);
+      export function useTestSubscription(baseOptions?: Apollo.SubscriptionHookOptions<TestSubscription, TestSubscriptionVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useSubscription<TestSubscription, TestSubscriptionVariables>(Operations.test, options);
       }
       `);
       await validateTypeScript(content, schema, docs, {});
@@ -2089,12 +2199,12 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from 'path/to/documents';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTest<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTest<TProps, TChildProps = {}, TDataName extends string = 'data'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestSubscription,
         TestSubscriptionVariables,
-        TestProps<TChildProps>>) {
-          return ApolloReactHoc.withSubscription<TProps, TestSubscription, TestSubscriptionVariables, TestProps<TChildProps>>(Operations.test, {
+        TestProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withSubscription<TProps, TestSubscription, TestSubscriptionVariables, TestProps<TChildProps, TDataName>>(Operations.test, {
             alias: 'test',
             ...operationOptions
           });
@@ -2152,24 +2262,28 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from 'path/to/documents';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestOneQuery(baseOptions?: ApolloReactHooks.QueryHookOptions<TestOneQuery, TestOneQueryVariables>) {
-        return ApolloReactHooks.useQuery<TestOneQuery, TestOneQueryVariables>(Operations.testOne, baseOptions);
+      export function useTestOneQuery(baseOptions?: Apollo.QueryHookOptions<TestOneQuery, TestOneQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<TestOneQuery, TestOneQueryVariables>(Operations.testOne, options);
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestOneLazyQuery(baseOptions?: ApolloReactHooks.LazyQueryHookOptions<TestOneQuery, TestOneQueryVariables>) {
-        return ApolloReactHooks.useLazyQuery<TestOneQuery, TestOneQueryVariables>(Operations.testOne, baseOptions);
+      export function useTestOneLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TestOneQuery, TestOneQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useLazyQuery<TestOneQuery, TestOneQueryVariables>(Operations.testOne, options);
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestTwoMutation(baseOptions?: ApolloReactHooks.MutationHookOptions<TestTwoMutation, TestTwoMutationVariables>) {
-        return ApolloReactHooks.useMutation<TestTwoMutation, TestTwoMutationVariables>(Operations.testTwo, baseOptions);
+      export function useTestTwoMutation(baseOptions?: Apollo.MutationHookOptions<TestTwoMutation, TestTwoMutationVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useMutation<TestTwoMutation, TestTwoMutationVariables>(Operations.testTwo, options);
       }
       `);
 
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestThreeSubscription(baseOptions?: ApolloReactHooks.SubscriptionHookOptions<TestThreeSubscription, TestThreeSubscriptionVariables>) {
-        return ApolloReactHooks.useSubscription<TestThreeSubscription, TestThreeSubscriptionVariables>(Operations.testThree, baseOptions);
+      export function useTestThreeSubscription(baseOptions?: Apollo.SubscriptionHookOptions<TestThreeSubscription, TestThreeSubscriptionVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useSubscription<TestThreeSubscription, TestThreeSubscriptionVariables>(Operations.testThree, options);
       }`);
 
       await validateTypeScript(content, schema, docs, {});
@@ -2192,36 +2306,36 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from 'path/to/documents';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTestOne<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTestOne<TProps, TChildProps = {}, TDataName extends string = 'data'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestOneQuery,
         TestOneQueryVariables,
-        TestOneProps<TChildProps>>) {
-          return ApolloReactHoc.withQuery<TProps, TestOneQuery, TestOneQueryVariables, TestOneProps<TChildProps>>(Operations.testOne, {
+        TestOneProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withQuery<TProps, TestOneQuery, TestOneQueryVariables, TestOneProps<TChildProps, TDataName>>(Operations.testOne, {
             alias: 'testOne',
             ...operationOptions
           });
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTestTwo<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTestTwo<TProps, TChildProps = {}, TDataName extends string = 'mutate'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestTwoMutation,
         TestTwoMutationVariables,
-        TestTwoProps<TChildProps>>) {
-          return ApolloReactHoc.withMutation<TProps, TestTwoMutation, TestTwoMutationVariables, TestTwoProps<TChildProps>>(Operations.testTwo, {
+        TestTwoProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withMutation<TProps, TestTwoMutation, TestTwoMutationVariables, TestTwoProps<TChildProps, TDataName>>(Operations.testTwo, {
             alias: 'testTwo',
             ...operationOptions
           });
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTestThree<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTestThree<TProps, TChildProps = {}, TDataName extends string = 'data'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestThreeSubscription,
         TestThreeSubscriptionVariables,
-        TestThreeProps<TChildProps>>) {
-          return ApolloReactHoc.withSubscription<TProps, TestThreeSubscription, TestThreeSubscriptionVariables, TestThreeProps<TChildProps>>(Operations.testThree, {
+        TestThreeProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withSubscription<TProps, TestThreeSubscription, TestThreeSubscriptionVariables, TestThreeProps<TChildProps, TDataName>>(Operations.testThree, {
             alias: 'testThree',
             ...operationOptions
           });
@@ -2270,13 +2384,15 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from './document.graphql';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestQuery(baseOptions?: ApolloReactHooks.QueryHookOptions<TestQuery, TestQueryVariables>) {
-        return ApolloReactHooks.useQuery<TestQuery, TestQueryVariables>(Operations.test, baseOptions);
+      export function useTestQuery(baseOptions?: Apollo.QueryHookOptions<TestQuery, TestQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<TestQuery, TestQueryVariables>(Operations.test, options);
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestLazyQuery(baseOptions?: ApolloReactHooks.LazyQueryHookOptions<TestQuery, TestQueryVariables>) {
-        return ApolloReactHooks.useLazyQuery<TestQuery, TestQueryVariables>(Operations.test, baseOptions);
+      export function useTestLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TestQuery, TestQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useLazyQuery<TestQuery, TestQueryVariables>(Operations.test, options);
       }
       `);
       await validateTypeScript(content, schema, docs, {});
@@ -2299,12 +2415,12 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from './document.graphql';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTest<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTest<TProps, TChildProps = {}, TDataName extends string = 'data'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestQuery,
         TestQueryVariables,
-        TestProps<TChildProps>>) {
-          return ApolloReactHoc.withQuery<TProps, TestQuery, TestQueryVariables, TestProps<TChildProps>>(Operations.test, {
+        TestProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withQuery<TProps, TestQuery, TestQueryVariables, TestProps<TChildProps, TDataName>>(Operations.test, {
             alias: 'test',
             ...operationOptions
           });
@@ -2353,8 +2469,9 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from './document.graphql';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestMutation(baseOptions?: ApolloReactHooks.MutationHookOptions<TestMutation, TestMutationVariables>) {
-        return ApolloReactHooks.useMutation<TestMutation, TestMutationVariables>(Operations.test, baseOptions);
+      export function useTestMutation(baseOptions?: Apollo.MutationHookOptions<TestMutation, TestMutationVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useMutation<TestMutation, TestMutationVariables>(Operations.test, options);
       }`);
       await validateTypeScript(content, schema, docs, {});
     });
@@ -2376,12 +2493,12 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from './document.graphql';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTest<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTest<TProps, TChildProps = {}, TDataName extends string = 'mutate'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestMutation,
         TestMutationVariables,
-        TestProps<TChildProps>>) {
-          return ApolloReactHoc.withMutation<TProps, TestMutation, TestMutationVariables, TestProps<TChildProps>>(Operations.test, {
+        TestProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withMutation<TProps, TestMutation, TestMutationVariables, TestProps<TChildProps, TDataName>>(Operations.test, {
             alias: 'test',
             ...operationOptions
           });
@@ -2430,8 +2547,9 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from './document.graphql';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestSubscription(baseOptions?: ApolloReactHooks.SubscriptionHookOptions<TestSubscription, TestSubscriptionVariables>) {
-        return ApolloReactHooks.useSubscription<TestSubscription, TestSubscriptionVariables>(Operations.test, baseOptions);
+      export function useTestSubscription(baseOptions?: Apollo.SubscriptionHookOptions<TestSubscription, TestSubscriptionVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useSubscription<TestSubscription, TestSubscriptionVariables>(Operations.test, options);
       }`);
       await validateTypeScript(content, schema, docs, {});
     });
@@ -2453,16 +2571,17 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from './document.graphql';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTest<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTest<TProps, TChildProps = {}, TDataName extends string = 'data'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestSubscription,
         TestSubscriptionVariables,
-        TestProps<TChildProps>>) {
-          return ApolloReactHoc.withSubscription<TProps, TestSubscription, TestSubscriptionVariables, TestProps<TChildProps>>(Operations.test, {
+        TestProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withSubscription<TProps, TestSubscription, TestSubscriptionVariables, TestProps<TChildProps, TDataName>>(Operations.test, {
             alias: 'test',
             ...operationOptions
           });
-      }`);
+      }
+      `);
       await validateTypeScript(content, schema, docs, {});
     });
 
@@ -2515,23 +2634,27 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from './document.graphql';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestOneQuery(baseOptions?: ApolloReactHooks.QueryHookOptions<TestOneQuery, TestOneQueryVariables>) {
-        return ApolloReactHooks.useQuery<TestOneQuery, TestOneQueryVariables>(Operations.testOne, baseOptions);
+      export function useTestOneQuery(baseOptions?: Apollo.QueryHookOptions<TestOneQuery, TestOneQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<TestOneQuery, TestOneQueryVariables>(Operations.testOne, options);
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestOneLazyQuery(baseOptions?: ApolloReactHooks.LazyQueryHookOptions<TestOneQuery, TestOneQueryVariables>) {
-        return ApolloReactHooks.useLazyQuery<TestOneQuery, TestOneQueryVariables>(Operations.testOne, baseOptions);
+      export function useTestOneLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TestOneQuery, TestOneQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useLazyQuery<TestOneQuery, TestOneQueryVariables>(Operations.testOne, options);
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestTwoMutation(baseOptions?: ApolloReactHooks.MutationHookOptions<TestTwoMutation, TestTwoMutationVariables>) {
-        return ApolloReactHooks.useMutation<TestTwoMutation, TestTwoMutationVariables>(Operations.testTwo, baseOptions);
+      export function useTestTwoMutation(baseOptions?: Apollo.MutationHookOptions<TestTwoMutation, TestTwoMutationVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useMutation<TestTwoMutation, TestTwoMutationVariables>(Operations.testTwo, options);
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function useTestThreeSubscription(baseOptions?: ApolloReactHooks.SubscriptionHookOptions<TestThreeSubscription, TestThreeSubscriptionVariables>) {
-        return ApolloReactHooks.useSubscription<TestThreeSubscription, TestThreeSubscriptionVariables>(Operations.testThree, baseOptions);
+      export function useTestThreeSubscription(baseOptions?: Apollo.SubscriptionHookOptions<TestThreeSubscription, TestThreeSubscriptionVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useSubscription<TestThreeSubscription, TestThreeSubscriptionVariables>(Operations.testThree, options);
       }`);
 
       await validateTypeScript(content, schema, docs, {});
@@ -2554,36 +2677,36 @@ export function useListenToCommentsSubscription(baseOptions?: ApolloReactHooks.S
 
       expect(content.prepend).toContain(`import * as Operations from './document.graphql';`);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTestOne<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTestOne<TProps, TChildProps = {}, TDataName extends string = 'data'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestOneQuery,
         TestOneQueryVariables,
-        TestOneProps<TChildProps>>) {
-          return ApolloReactHoc.withQuery<TProps, TestOneQuery, TestOneQueryVariables, TestOneProps<TChildProps>>(Operations.testOne, {
+        TestOneProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withQuery<TProps, TestOneQuery, TestOneQueryVariables, TestOneProps<TChildProps, TDataName>>(Operations.testOne, {
             alias: 'testOne',
             ...operationOptions
           });
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTestTwo<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTestTwo<TProps, TChildProps = {}, TDataName extends string = 'mutate'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestTwoMutation,
         TestTwoMutationVariables,
-        TestTwoProps<TChildProps>>) {
-          return ApolloReactHoc.withMutation<TProps, TestTwoMutation, TestTwoMutationVariables, TestTwoProps<TChildProps>>(Operations.testTwo, {
+        TestTwoProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withMutation<TProps, TestTwoMutation, TestTwoMutationVariables, TestTwoProps<TChildProps, TDataName>>(Operations.testTwo, {
             alias: 'testTwo',
             ...operationOptions
           });
       }
       `);
       expect(content.content).toBeSimilarStringTo(`
-      export function withTestThree<TProps, TChildProps = {}>(operationOptions?: ApolloReactHoc.OperationOption<
+      export function withTestThree<TProps, TChildProps = {}, TDataName extends string = 'data'>(operationOptions?: ApolloReactHoc.OperationOption<
         TProps,
         TestThreeSubscription,
         TestThreeSubscriptionVariables,
-        TestThreeProps<TChildProps>>) {
-          return ApolloReactHoc.withSubscription<TProps, TestThreeSubscription, TestThreeSubscriptionVariables, TestThreeProps<TChildProps>>(Operations.testThree, {
+        TestThreeProps<TChildProps, TDataName>>) {
+          return ApolloReactHoc.withSubscription<TProps, TestThreeSubscription, TestThreeSubscriptionVariables, TestThreeProps<TChildProps, TDataName>>(Operations.testThree, {
             alias: 'testThree',
             ...operationOptions
           });

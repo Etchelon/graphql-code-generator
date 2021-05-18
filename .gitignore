@@ -3,6 +3,7 @@
 .yarnclean
 .DS_Store
 coverage
+npm-debug.log
 lerna-debug.log
 yarn-error.log
 node_modules
@@ -14,4 +15,9 @@ temp
 test-results/
 junit.xml
 dist
+.bob
 out.txt
+.cache
+tsconfig.tsbuildinfo
+.yarn
+recompile.sh

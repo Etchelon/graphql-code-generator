@@ -1,31 +1,28 @@
 {
   "name": "@graphql-codegen/java-common",
-  "version": "1.13.1",
+  "version": "1.17.9",
   "description": "GraphQL Code Generator utils library for developing Java plugins",
-  "repository": "git@github.com:dotansimha/graphql-code-generator.git",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dotansimha/graphql-code-generator.git",
+    "directory": "packages/plugins/java/common"
+  },
   "license": "MIT",
   "scripts": {
     "lint": "eslint **/*.ts",
-    "prepack": "bob-update-version",
-    "build": "bob"
+    "prepack": "bob prepack"
   },
   "dependencies": {
-    "@graphql-codegen/plugin-helpers": "1.13.1",
-    "@graphql-codegen/visitor-plugin-common": "1.13.1",
-    "strip-indent": "3.0.0",
-    "tslib": "1.11.1",
-    "unixify": "1.0.0"
+    "@graphql-codegen/plugin-helpers": "^1.18.2",
+    "@graphql-codegen/visitor-plugin-common": "^1.17.20",
+    "auto-bind": "~4.0.0",
+    "min-indent": "1.0.1",
+    "tslib": "~2.2.0",
+    "unixify": "^1.0.0"
   },
   "peerDependencies": {
-    "graphql": "^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0"
+    "graphql": "^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0"
   },
-  "devDependencies": {
-    "bob-the-bundler": "0.3.4",
-    "graphql": "14.6.0",
-    "java-ast": "0.1.0",
-    "typescript": "3.8.3"
-  },
-  "sideEffects": false,
   "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",
   "typings": "dist/index.d.ts",
@@ -36,6 +33,7 @@
     "input": "./src/index.ts"
   },
   "publishConfig": {
+    "directory": "dist",
     "access": "public"
   }
 }

@@ -1,11 +1,26 @@
 import { RawConfig, EnumValuesMap } from '@graphql-codegen/visitor-plugin-common';
+
+/**
+ * @description You can use this plugin to generate Java enums based on your GraphQL schema, and it also generates a type-safe Java transformer for GraphQL `input` types.
+ */
 export interface JavaResolversPluginRawConfig extends RawConfig {
   /**
-   * @name package
-   * @type string
+   * @description Customize the class members prefix. The default is empty (this might be a breaking change from the default that was _)
+   *
+   * @exampleMarkdown
+   * ```yml
+   *   src/main/java/my-org/my-app/Resolvers.java:
+   *     plugins:
+   *       - java
+   *     config:
+   *       classMembersPrefix: '_'
+   * ```
+   */
+  classMembersPrefix?: string;
+  /**
    * @description Customize the Java package name. The default package name will be generated according to the output file path.
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    * generates:
    *   src/main/java/my-org/my-app/Resolvers.java:
@@ -17,11 +32,9 @@ export interface JavaResolversPluginRawConfig extends RawConfig {
    */
   package?: string;
   /**
-   * @name enumValues
-   * @type EnumValuesMap
    * @description Overrides the default value of enum values declared in your GraphQL schema.
    *
-   * @example With Custom Values
+   * @exampleMarkdown
    * ```yml
    *   config:
    *     enumValues:
@@ -31,12 +44,10 @@ export interface JavaResolversPluginRawConfig extends RawConfig {
    */
   enumValues?: EnumValuesMap;
   /**
-   * @name className
-   * @type string
    * @default Types
    * @description Allow you to customize the parent class name.
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    * generates:
    *   src/main/java/my-org/my-app/MyGeneratedTypes.java:
@@ -48,12 +59,10 @@ export interface JavaResolversPluginRawConfig extends RawConfig {
    */
   className?: string;
   /**
-   * @name listType
-   * @type string
    * @default Iterable
    * @description Allow you to customize the list type
    *
-   * @example
+   * @exampleMarkdown
    * ```yml
    * generates:
    *   src/main/java/my-org/my-app/Types.java:
